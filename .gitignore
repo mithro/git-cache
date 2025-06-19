@@ -1,0 +1,49 @@
+# Compiled binaries
+git-mycommand
+*.exe
+
+# Object files
+*.o
+*.a
+*.so
+*.dylib
+
+# Debug information
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor and IDE files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+*.sublime-*
+
+# Build directories
+build/
+dist/
+
+# Core dumps
+core
+core.*
+
+# Temporary files
+*.tmp
+*.temp
+
+# Static analysis
+*.gcov
+*.gcda
+*.gcno
