@@ -65,11 +65,19 @@ run_test "Help option (--help)" 1 "$BINARY --help"
 # Test 3: Unknown option
 run_test "Unknown option" 1 "$BINARY --unknown-option"
 
+# Create a temporary directory outside git repo for testing
+TEMP_NON_GIT_DIR=$(mktemp -d)
+cd "$TEMP_NON_GIT_DIR"
+
 # Test 4: Basic execution (will fail if not in git repo)
 run_test "Basic execution outside git repo" 1 "$BINARY"
 
 # Test 5: Verbose option outside git repo
 run_test "Verbose option outside git repo" 1 "$BINARY -v"
+
+# Clean up non-git temp dir
+cd "$PROJECT_DIR"
+rm -rf "$TEMP_NON_GIT_DIR"
 
 # Create a temporary git repository for testing
 TEMP_DIR=$(mktemp -d)
