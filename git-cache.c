@@ -216,20 +216,499 @@ static int is_git_repository(void)
     return system("git rev-parse --git-dir >/dev/null 2>&1") == 0;
 }
 
-/* Placeholder implementation for cache operations */
-int cache_clone_repository(const char *url, const struct cache_options *options)
+/* Utility functions */
+
+/* Get home directory */
+char* get_home_directory(void)
 {
-    printf("Cache clone: %s\n", url);
-    if (options->verbose) {
-        printf("  Strategy: %d\n", options->strategy);
-        printf("  Depth: %d\n", options->depth);
-        printf("  Organization: %s\n", options->organization ? options->organization : "none");
-        printf("  Private: %s\n", options->make_private ? "yes" : "no");
-        printf("  Recursive: %s\n", options->recursive_submodules ? "yes" : "no");
+    char *home = getenv("HOME");
+    if (!home) {
+        return NULL;
     }
     
-    /* TODO: Implement actual caching logic */
-    printf("TODO: Implement cache clone functionality\n");
+    char *result = malloc(strlen(home) + 1);
+    if (result) {
+        strcpy(result, home);
+    }
+    return result;
+}
+
+/* Resolve path with environment variable expansion */
+char* resolve_path(const char *path)
+{
+    if (!path) {
+        return NULL;
+    }
+    
+    /* If path starts with ~, expand to home directory */
+    if (path[0] == '~') {
+        char *home = get_home_directory();
+        if (!home) {
+            return NULL;
+        }
+        
+        size_t home_len = strlen(home);
+        size_t path_len = strlen(path);
+        char *result = malloc(home_len + path_len);
+        if (!result) {
+            free(home);
+            return NULL;
+        }
+        
+        strcpy(result, home);
+        strcat(result, path + 1); /* Skip the ~ */
+        free(home);
+        return result;
+    }
+    
+    /* Otherwise, just copy the path */
+    char *result = malloc(strlen(path) + 1);
+    if (result) {
+        strcpy(result, path);
+    }
+    return result;
+}
+
+/* Check if directory exists and is accessible */
+static int directory_exists(const char *path)
+{
+    struct stat st;
+    return (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+/* Ensure directory exists, creating if necessary */
+int ensure_directory_exists(const char *path)
+{
+    if (!path) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (directory_exists(path)) {
+        return CACHE_SUCCESS;
+    }
+    
+    /* Create directory recursively */
+    char *path_copy = malloc(strlen(path) + 1);
+    if (!path_copy) {
+        return CACHE_ERROR_MEMORY;
+    }
+    strcpy(path_copy, path);
+    
+    char *dir = dirname(path_copy);
+    if (strcmp(dir, "/") != 0 && strcmp(dir, ".") != 0) {
+        int ret = ensure_directory_exists(dir);
+        if (ret != CACHE_SUCCESS) {
+            free(path_copy);
+            return ret;
+        }
+    }
+    
+    free(path_copy);
+    
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        return CACHE_ERROR_FILESYSTEM;
+    }
+    
+    return CACHE_SUCCESS;
+}
+
+/* Check if directory is empty */
+int is_directory_empty(const char *path)
+{
+    if (!directory_exists(path)) {
+        return 1; /* Non-existent directory is considered empty */
+    }
+    
+    /* TODO: Implement directory content checking */
+    return 0;
+}
+
+/* Configuration management */
+
+/* Create cache configuration with defaults */
+struct cache_config* cache_config_create(void)
+{
+    struct cache_config *config = malloc(sizeof(struct cache_config));
+    if (!config) {
+        return NULL;
+    }
+    
+    memset(config, 0, sizeof(struct cache_config));
+    
+    /* Set default paths */
+    char *home = get_home_directory();
+    if (home) {
+        size_t cache_len = strlen(home) + strlen(CACHE_BASE_DIR) + 1;
+        config->cache_root = malloc(cache_len);
+        if (config->cache_root) {
+            snprintf(config->cache_root, cache_len, "%s%s", home, CACHE_BASE_DIR);
+        }
+        
+        size_t checkout_len = strlen(home) + strlen(CHECKOUT_BASE_DIR) + 1;
+        config->checkout_root = malloc(checkout_len);
+        if (config->checkout_root) {
+            snprintf(config->checkout_root, checkout_len, "%s%s", home, CHECKOUT_BASE_DIR);
+        }
+        
+        free(home);
+    }
+    
+    /* Set default strategy */
+    config->default_strategy = CLONE_STRATEGY_TREELESS;
+    config->verbose = 0;
+    config->force = 0;
+    config->recursive_submodules = 1;
+    
+    /* Get GitHub token from environment */
+    char *token = getenv("GITHUB_TOKEN");
+    if (token) {
+        config->github_token = malloc(strlen(token) + 1);
+        if (config->github_token) {
+            strcpy(config->github_token, token);
+        }
+    }
+    
+    return config;
+}
+
+/* Destroy cache configuration */
+void cache_config_destroy(struct cache_config *config)
+{
+    if (!config) {
+        return;
+    }
+    
+    free(config->cache_root);
+    free(config->checkout_root);
+    free(config->github_token);
+    free(config);
+}
+
+/* Load configuration from environment and config files */
+int cache_config_load(struct cache_config *config)
+{
+    if (!config) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    /* Override with environment variables if set */
+    char *env_cache_root = getenv("GIT_CACHE_ROOT");
+    if (env_cache_root) {
+        free(config->cache_root);
+        config->cache_root = resolve_path(env_cache_root);
+        if (!config->cache_root) {
+            return CACHE_ERROR_MEMORY;
+        }
+    }
+    
+    char *env_checkout_root = getenv("GIT_CHECKOUT_ROOT");
+    if (env_checkout_root) {
+        free(config->checkout_root);
+        config->checkout_root = resolve_path(env_checkout_root);
+        if (!config->checkout_root) {
+            return CACHE_ERROR_MEMORY;
+        }
+    }
+    
+    char *env_token = getenv("GITHUB_TOKEN");
+    if (env_token) {
+        free(config->github_token);
+        config->github_token = malloc(strlen(env_token) + 1);
+        if (!config->github_token) {
+            return CACHE_ERROR_MEMORY;
+        }
+        strcpy(config->github_token, env_token);
+    }
+    
+    return CACHE_SUCCESS;
+}
+
+/* Validate cache configuration */
+int cache_config_validate(const struct cache_config *config)
+{
+    if (!config) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (!config->cache_root) {
+        fprintf(stderr, "Error: cache root directory not set\n");
+        return CACHE_ERROR_CONFIG;
+    }
+    
+    if (!config->checkout_root) {
+        fprintf(stderr, "Error: checkout root directory not set\n");
+        return CACHE_ERROR_CONFIG;
+    }
+    
+    /* Ensure cache and checkout directories exist */
+    int ret = ensure_directory_exists(config->cache_root);
+    if (ret != CACHE_SUCCESS) {
+        fprintf(stderr, "Error: failed to create cache directory: %s\n", config->cache_root);
+        return ret;
+    }
+    
+    ret = ensure_directory_exists(config->checkout_root);
+    if (ret != CACHE_SUCCESS) {
+        fprintf(stderr, "Error: failed to create checkout directory: %s\n", config->checkout_root);
+        return ret;
+    }
+    
+    return CACHE_SUCCESS;
+}
+
+/* Repository information management */
+
+/* Create repository information structure */
+struct repo_info* repo_info_create(void)
+{
+    struct repo_info *repo = malloc(sizeof(struct repo_info));
+    if (!repo) {
+        return NULL;
+    }
+    
+    memset(repo, 0, sizeof(struct repo_info));
+    repo->type = REPO_TYPE_UNKNOWN;
+    repo->strategy = CLONE_STRATEGY_FULL;
+    repo->is_fork_needed = 0;
+    
+    return repo;
+}
+
+/* Destroy repository information structure */
+void repo_info_destroy(struct repo_info *repo)
+{
+    if (!repo) {
+        return;
+    }
+    
+    free(repo->original_url);
+    free(repo->owner);
+    free(repo->name);
+    free(repo->cache_path);
+    free(repo->checkout_path);
+    free(repo->modifiable_path);
+    free(repo->fork_organization);
+    free(repo);
+}
+
+/* Parse repository URL and extract information */
+int repo_info_parse_url(const char *url, struct repo_info *repo)
+{
+    if (!url || !repo) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    /* Store original URL */
+    repo->original_url = malloc(strlen(url) + 1);
+    if (!repo->original_url) {
+        return CACHE_ERROR_MEMORY;
+    }
+    strcpy(repo->original_url, url);
+    
+    /* Parse GitHub URLs */
+    char *owner, *name;
+    int ret = github_parse_repo_url(url, &owner, &name);
+    if (ret == GITHUB_SUCCESS) {
+        repo->type = REPO_TYPE_GITHUB;
+        repo->owner = owner;
+        repo->name = name;
+        repo->is_fork_needed = 1; /* Default to forking for GitHub repos */
+        return CACHE_SUCCESS;
+    }
+    
+    /* If GitHub parsing failed, it's an unknown repository type */
+    repo->type = REPO_TYPE_UNKNOWN;
+    fprintf(stderr, "Warning: unsupported repository URL format: %s\n", url);
+    
+    return CACHE_ERROR_ARGS;
+}
+
+/* Setup paths for repository based on configuration */
+int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *config)
+{
+    if (!repo || !config) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (repo->type != REPO_TYPE_GITHUB) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (!repo->owner || !repo->name) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    /* Setup cache path: ~/.cache/git/github.com/owner/repo */
+    size_t cache_len = strlen(config->cache_root) + strlen("/github.com/") + 
+                       strlen(repo->owner) + 1 + strlen(repo->name) + 1;
+    repo->cache_path = malloc(cache_len);
+    if (!repo->cache_path) {
+        return CACHE_ERROR_MEMORY;
+    }
+    snprintf(repo->cache_path, cache_len, "%s/github.com/%s/%s", 
+             config->cache_root, repo->owner, repo->name);
+    
+    /* Setup checkout path: ~/github/owner/repo */
+    size_t checkout_len = strlen(config->checkout_root) + 1 + 
+                          strlen(repo->owner) + 1 + strlen(repo->name) + 1;
+    repo->checkout_path = malloc(checkout_len);
+    if (!repo->checkout_path) {
+        return CACHE_ERROR_MEMORY;
+    }
+    snprintf(repo->checkout_path, checkout_len, "%s/%s/%s", 
+             config->checkout_root, repo->owner, repo->name);
+    
+    /* Setup modifiable path: ~/github/mithro/owner-repo */
+    size_t modifiable_len = strlen(config->checkout_root) + strlen("/mithro/") + 
+                            strlen(repo->owner) + 1 + strlen(repo->name) + 1;
+    repo->modifiable_path = malloc(modifiable_len);
+    if (!repo->modifiable_path) {
+        return CACHE_ERROR_MEMORY;
+    }
+    snprintf(repo->modifiable_path, modifiable_len, "%s/mithro/%s-%s", 
+             config->checkout_root, repo->owner, repo->name);
+    
+    return CACHE_SUCCESS;
+}
+
+/* Cache operations implementation */
+int cache_clone_repository(const char *url, const struct cache_options *options)
+{
+    if (!url || !options) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (options->verbose) {
+        printf("Cloning repository: %s\n", url);
+    }
+    
+    /* Create and load configuration */
+    struct cache_config *config = cache_config_create();
+    if (!config) {
+        return CACHE_ERROR_MEMORY;
+    }
+    
+    int ret = cache_config_load(config);
+    if (ret != CACHE_SUCCESS) {
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    /* Override configuration with command line options */
+    config->verbose = options->verbose;
+    config->force = options->force;
+    config->recursive_submodules = options->recursive_submodules;
+    
+    ret = cache_config_validate(config);
+    if (ret != CACHE_SUCCESS) {
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    /* Parse repository information */
+    struct repo_info *repo = repo_info_create();
+    if (!repo) {
+        cache_config_destroy(config);
+        return CACHE_ERROR_MEMORY;
+    }
+    
+    ret = repo_info_parse_url(url, repo);
+    if (ret != CACHE_SUCCESS) {
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    /* Set strategy from options */
+    repo->strategy = options->strategy;
+    
+    /* Set fork organization */
+    if (options->organization) {
+        repo->fork_organization = malloc(strlen(options->organization) + 1);
+        if (!repo->fork_organization) {
+            repo_info_destroy(repo);
+            cache_config_destroy(config);
+            return CACHE_ERROR_MEMORY;
+        }
+        strcpy(repo->fork_organization, options->organization);
+    } else if (repo->type == REPO_TYPE_GITHUB) {
+        /* Default to mithro-mirrors for GitHub repos */
+        repo->fork_organization = malloc(strlen("mithro-mirrors") + 1);
+        if (!repo->fork_organization) {
+            repo_info_destroy(repo);
+            cache_config_destroy(config);
+            return CACHE_ERROR_MEMORY;
+        }
+        strcpy(repo->fork_organization, "mithro-mirrors");
+    }
+    
+    /* Setup repository paths */
+    ret = repo_info_setup_paths(repo, config);
+    if (ret != CACHE_SUCCESS) {
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    if (options->verbose) {
+        printf("Repository paths:\n");
+        printf("  Cache: %s\n", repo->cache_path);
+        printf("  Checkout: %s\n", repo->checkout_path);
+        printf("  Modifiable: %s\n", repo->modifiable_path);
+        printf("  Strategy: %s\n", 
+               repo->strategy == CLONE_STRATEGY_FULL ? "full" :
+               repo->strategy == CLONE_STRATEGY_SHALLOW ? "shallow" :
+               repo->strategy == CLONE_STRATEGY_TREELESS ? "treeless" :
+               repo->strategy == CLONE_STRATEGY_BLOBLESS ? "blobless" : "unknown");
+        if (repo->fork_organization) {
+            printf("  Fork organization: %s\n", repo->fork_organization);
+        }
+    }
+    
+    /* Create necessary directories */
+    ret = ensure_directory_exists(repo->cache_path);
+    if (ret != CACHE_SUCCESS) {
+        fprintf(stderr, "Failed to create cache directory: %s\n", repo->cache_path);
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    ret = ensure_directory_exists(repo->checkout_path);
+    if (ret != CACHE_SUCCESS) {
+        fprintf(stderr, "Failed to create checkout directory: %s\n", repo->checkout_path);
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    /* Create directory for modifiable path */
+    char *modifiable_dir = malloc(strlen(repo->modifiable_path) + 1);
+    if (!modifiable_dir) {
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return CACHE_ERROR_MEMORY;
+    }
+    strcpy(modifiable_dir, repo->modifiable_path);
+    char *last_slash = strrchr(modifiable_dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        ret = ensure_directory_exists(modifiable_dir);
+        if (ret != CACHE_SUCCESS) {
+            fprintf(stderr, "Failed to create modifiable directory: %s\n", modifiable_dir);
+            free(modifiable_dir);
+            repo_info_destroy(repo);
+            cache_config_destroy(config);
+            return ret;
+        }
+    }
+    free(modifiable_dir);
+    
+    printf("Cache setup complete. Ready to implement git operations.\n");
+    printf("TODO: Implement actual git clone and fork operations\n");
+    
+    repo_info_destroy(repo);
+    cache_config_destroy(config);
     return CACHE_SUCCESS;
 }
 
