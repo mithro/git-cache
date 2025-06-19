@@ -336,6 +336,157 @@ int github_get_repo(struct github_client *client, const char *owner, const char 
     return ret;
 }
 
+/* Fork repository */
+int github_fork_repo(struct github_client *client, const char *owner, const char *repo, 
+                     const char *organization, struct github_repo **result)
+{
+    if (!client || !owner || !repo || !result) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    char url[GITHUB_MAX_URL_LEN];
+    snprintf(url, sizeof(url), "%s/repos/%s/%s/forks", GITHUB_API_BASE_URL, owner, repo);
+    
+    /* Create JSON payload for fork request */
+    json_object *fork_data = json_object_new_object();
+    if (!fork_data) {
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    /* Add organization if specified */
+    if (organization && strlen(organization) > 0) {
+        json_object *org_obj = json_object_new_string(organization);
+        if (!org_obj) {
+            json_object_put(fork_data);
+            return GITHUB_ERROR_MEMORY;
+        }
+        json_object_object_add(fork_data, "organization", org_obj);
+    }
+    
+    /* Convert to string */
+    const char *json_string = json_object_to_json_string(fork_data);
+    if (!json_string) {
+        json_object_put(fork_data);
+        return GITHUB_ERROR_JSON;
+    }
+    
+    /* Make the fork request */
+    struct github_response *response;
+    int ret = github_make_request(client, "POST", url, json_string, &response);
+    
+    json_object_put(fork_data);
+    
+    if (ret != GITHUB_SUCCESS) {
+        return ret;
+    }
+    
+    /* Handle different response codes */
+    if (response->status_code == 404) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_NOT_FOUND;
+    }
+    
+    if (response->status_code == 403) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_FORBIDDEN;
+    }
+    
+    if (response->status_code == 422) {
+        /* Repository already forked or other validation error */
+        github_response_destroy(response);
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    if (response->status_code != 201 && response->status_code != 202) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_NETWORK;
+    }
+    
+    /* Parse the response */
+    *result = github_repo_create();
+    if (!*result) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    ret = github_parse_repo_json(response->data, *result);
+    github_response_destroy(response);
+    
+    if (ret != GITHUB_SUCCESS) {
+        github_repo_destroy(*result);
+        *result = NULL;
+    }
+    
+    return ret;
+}
+
+/* Set repository privacy */
+int github_set_repo_private(struct github_client *client, const char *owner, const char *repo, 
+                           int is_private)
+{
+    if (!client || !owner || !repo) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    char url[GITHUB_MAX_URL_LEN];
+    snprintf(url, sizeof(url), "%s/repos/%s/%s", GITHUB_API_BASE_URL, owner, repo);
+    
+    /* Create JSON payload for privacy update */
+    json_object *update_data = json_object_new_object();
+    if (!update_data) {
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    json_object *private_obj = json_object_new_boolean(is_private);
+    if (!private_obj) {
+        json_object_put(update_data);
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    json_object_object_add(update_data, "private", private_obj);
+    
+    /* Convert to string */
+    const char *json_string = json_object_to_json_string(update_data);
+    if (!json_string) {
+        json_object_put(update_data);
+        return GITHUB_ERROR_JSON;
+    }
+    
+    /* Make the update request */
+    struct github_response *response;
+    int ret = github_make_request(client, "PATCH", url, json_string, &response);
+    
+    json_object_put(update_data);
+    
+    if (ret != GITHUB_SUCCESS) {
+        return ret;
+    }
+    
+    /* Handle response codes */
+    if (response->status_code == 404) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_NOT_FOUND;
+    }
+    
+    if (response->status_code == 403) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_FORBIDDEN;
+    }
+    
+    if (response->status_code == 422) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    if (response->status_code != 200) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_NETWORK;
+    }
+    
+    github_response_destroy(response);
+    return GITHUB_SUCCESS;
+}
+
 /* Get error string for error code */
 const char* github_get_error_string(int error_code)
 {
@@ -359,4 +510,139 @@ const char* github_get_error_string(int error_code)
         default:
             return "Unknown error";
     }
+}
+
+/* Parse GitHub repository URL */
+int github_parse_repo_url(const char *url, char **owner, char **repo)
+{
+    if (!url || !owner || !repo) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    *owner = NULL;
+    *repo = NULL;
+    
+    /* Handle different URL formats:
+     * https://github.com/owner/repo
+     * https://github.com/owner/repo.git
+     * git@github.com:owner/repo.git
+     * github.com/owner/repo
+     */
+    
+    const char *start = url;
+    
+    /* Skip protocol */
+    if (strncmp(url, "https://", 8) == 0) {
+        start = url + 8;
+    } else if (strncmp(url, "http://", 7) == 0) {
+        start = url + 7;
+    } else if (strncmp(url, "git@", 4) == 0) {
+        /* For SSH URLs like git@github.com:owner/repo.git */
+        start = strchr(url, ':');
+        if (!start) {
+            return GITHUB_ERROR_INVALID;
+        }
+        start++; /* Skip the ':' */
+        /* For SSH, we now have "owner/repo.git", so skip the github.com check */
+        goto parse_owner_repo;
+    }
+    
+    /* Find github.com */
+    if (strncmp(start, "github.com/", 11) == 0) {
+        start += 11;
+    } else if (strncmp(start, "github.com:", 11) == 0) {
+        start += 11;
+    } else if (strncmp(start, "github.com", 10) == 0) {
+        /* Handle case where there's no trailing slash or colon */
+        start += 10;
+        if (*start == '/') start++;
+        if (*start == ':') start++;
+    } else {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+parse_owner_repo:
+    /* Find the owner */
+    ;
+    const char *slash = strchr(start, '/');
+    if (!slash) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    size_t owner_len = slash - start;
+    if (owner_len == 0) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    *owner = malloc(owner_len + 1);
+    if (!*owner) {
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    strncpy(*owner, start, owner_len);
+    (*owner)[owner_len] = '\0';
+    
+    /* Find the repo name */
+    const char *repo_start = slash + 1;
+    const char *repo_end = repo_start + strlen(repo_start);
+    
+    /* Remove .git suffix if present */
+    if (repo_end > repo_start + 4 && strcmp(repo_end - 4, ".git") == 0) {
+        repo_end -= 4;
+    }
+    
+    size_t repo_len = repo_end - repo_start;
+    if (repo_len == 0) {
+        free(*owner);
+        *owner = NULL;
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    *repo = malloc(repo_len + 1);
+    if (!*repo) {
+        free(*owner);
+        *owner = NULL;
+        return GITHUB_ERROR_MEMORY;
+    }
+    
+    strncpy(*repo, repo_start, repo_len);
+    (*repo)[repo_len] = '\0';
+    
+    return GITHUB_SUCCESS;
+}
+
+/* Validate GitHub token by making a simple API call */
+int github_validate_token(struct github_client *client)
+{
+    if (!client) {
+        return GITHUB_ERROR_INVALID;
+    }
+    
+    char url[GITHUB_MAX_URL_LEN];
+    snprintf(url, sizeof(url), "%s/user", GITHUB_API_BASE_URL);
+    
+    struct github_response *response;
+    int ret = github_make_request(client, "GET", url, NULL, &response);
+    
+    if (ret != GITHUB_SUCCESS) {
+        return ret;
+    }
+    
+    if (response->status_code == 401) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_AUTH;
+    }
+    
+    if (response->status_code == 403) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_FORBIDDEN;
+    }
+    
+    if (response->status_code != 200) {
+        github_response_destroy(response);
+        return GITHUB_ERROR_NETWORK;
+    }
+    
+    github_response_destroy(response);
+    return GITHUB_SUCCESS;
 }
