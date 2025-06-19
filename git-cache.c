@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <libgen.h>
 
@@ -571,6 +572,279 @@ int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *con
     return CACHE_SUCCESS;
 }
 
+/* Git operation helpers - forward declarations */
+static int create_reference_checkout(const char *cache_path, const char *checkout_path,
+                                    enum clone_strategy strategy, const struct cache_options *options,
+                                    const struct cache_config *config);
+
+/* Git operation helpers */
+
+/* Execute git command and return exit code */
+static int run_git_command(const char *command, const char *working_dir)
+{
+    if (!command) {
+        return -1;
+    }
+    
+    char *full_command;
+    if (working_dir) {
+        size_t cmd_len = strlen("cd \"") + strlen(working_dir) + strlen("\" && ") + strlen(command) + 1;
+        full_command = malloc(cmd_len);
+        if (!full_command) {
+            return -1;
+        }
+        snprintf(full_command, cmd_len, "cd \"%s\" && %s", working_dir, command);
+    } else {
+        full_command = malloc(strlen(command) + 1);
+        if (!full_command) {
+            return -1;
+        }
+        strcpy(full_command, command);
+    }
+    
+    int result = system(full_command);
+    free(full_command);
+    return WEXITSTATUS(result);
+}
+
+/* Check if a git repository exists at the given path */
+static int is_git_repository_at(const char *path)
+{
+    if (!path) {
+        return 0;
+    }
+    
+    char *check_cmd = malloc(strlen("git -C \"") + strlen(path) + strlen("\" rev-parse --git-dir >/dev/null 2>&1") + 1);
+    if (!check_cmd) {
+        return 0;
+    }
+    
+    snprintf(check_cmd, strlen("git -C \"") + strlen(path) + strlen("\" rev-parse --git-dir >/dev/null 2>&1") + 1,
+             "git -C \"%s\" rev-parse --git-dir >/dev/null 2>&1", path);
+    
+    int result = system(check_cmd);
+    free(check_cmd);
+    return WEXITSTATUS(result) == 0;
+}
+
+/* Create full bare repository in cache location */
+static int create_cache_repository(struct repo_info *repo, const struct cache_config *config)
+{
+    if (!repo || !config) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (config->verbose) {
+        printf("Creating cache repository at: %s\n", repo->cache_path);
+    }
+    
+    /* Check if cache already exists */
+    if (is_git_repository_at(repo->cache_path)) {
+        if (config->verbose) {
+            printf("Cache repository already exists, updating...\n");
+        }
+        
+        /* Update existing repository */
+        char *fetch_cmd = malloc(strlen("git fetch --all --prune") + 1);
+        if (!fetch_cmd) {
+            return CACHE_ERROR_MEMORY;
+        }
+        strcpy(fetch_cmd, "git fetch --all --prune");
+        
+        int result = run_git_command(fetch_cmd, repo->cache_path);
+        free(fetch_cmd);
+        
+        if (result != 0) {
+            if (config->verbose) {
+                printf("Warning: git fetch failed with exit code %d\n", result);
+            }
+            return CACHE_ERROR_GIT;
+        }
+        
+        return CACHE_SUCCESS;
+    }
+    
+    /* Create new bare repository */
+    size_t cmd_len = strlen("git clone --bare \"") + strlen(repo->original_url) + 
+                     strlen("\" \"") + strlen(repo->cache_path) + strlen("\"") + 1;
+    char *clone_cmd = malloc(cmd_len);
+    if (!clone_cmd) {
+        return CACHE_ERROR_MEMORY;
+    }
+    
+    snprintf(clone_cmd, cmd_len, "git clone --bare \"%s\" \"%s\"", 
+             repo->original_url, repo->cache_path);
+    
+    if (config->verbose) {
+        printf("Executing: %s\n", clone_cmd);
+    }
+    
+    int result = system(clone_cmd);
+    free(clone_cmd);
+    
+    if (WEXITSTATUS(result) != 0) {
+        fprintf(stderr, "Error: git clone failed with exit code %d\n", WEXITSTATUS(result));
+        return CACHE_ERROR_GIT;
+    }
+    
+    if (config->verbose) {
+        printf("Cache repository created successfully\n");
+    }
+    
+    return CACHE_SUCCESS;
+}
+
+/* Handle GitHub repository forking */
+static int handle_github_fork(struct repo_info *repo, const struct cache_config *config, 
+                             const struct cache_options *options)
+{
+    if (!repo || !config || !options) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    if (config->verbose) {
+        printf("Creating GitHub fork in organization: %s\n", repo->fork_organization);
+    }
+    
+    /* Create GitHub API client */
+    struct github_client *client = github_client_create(config->github_token);
+    if (!client) {
+        return CACHE_ERROR_GITHUB;
+    }
+    
+    /* Fork the repository */
+    struct github_repo *forked_repo;
+    int ret = github_fork_repo(client, repo->owner, repo->name, repo->fork_organization, &forked_repo);
+    
+    if (ret == GITHUB_SUCCESS) {
+        if (config->verbose) {
+            printf("Fork created: %s\n", forked_repo->full_name);
+        }
+        
+        /* Set fork to private if requested */
+        if (options->make_private) {
+            ret = github_set_repo_private(client, forked_repo->owner, forked_repo->name, 1);
+            if (ret == GITHUB_SUCCESS) {
+                if (config->verbose) {
+                    printf("Fork set to private\n");
+                }
+            } else {
+                if (config->verbose) {
+                    printf("Warning: failed to set fork to private: %s\n", github_get_error_string(ret));
+                }
+            }
+        }
+        
+        github_repo_destroy(forked_repo);
+    } else if (ret == GITHUB_ERROR_INVALID) {
+        if (config->verbose) {
+            printf("Fork already exists or validation error\n");
+        }
+        ret = CACHE_SUCCESS; /* Not a fatal error */
+    } else {
+        if (config->verbose) {
+            printf("Fork creation failed: %s\n", github_get_error_string(ret));
+        }
+    }
+    
+    github_client_destroy(client);
+    return ret;
+}
+
+/* Create reference-based checkouts */
+static int create_reference_checkouts(struct repo_info *repo, const struct cache_config *config,
+                                     const struct cache_options *options)
+{
+    if (!repo || !config || !options) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    /* Create read-only checkout */
+    int ret = create_reference_checkout(repo->cache_path, repo->checkout_path, 
+                                       repo->strategy, options, config);
+    if (ret != CACHE_SUCCESS) {
+        return ret;
+    }
+    
+    /* Create modifiable checkout (always use blobless for development) */
+    ret = create_reference_checkout(repo->cache_path, repo->modifiable_path,
+                                   CLONE_STRATEGY_BLOBLESS, options, config);
+    if (ret != CACHE_SUCCESS) {
+        return ret;
+    }
+    
+    return CACHE_SUCCESS;
+}
+
+/* Create a single reference-based checkout */
+static int create_reference_checkout(const char *cache_path, const char *checkout_path,
+                                    enum clone_strategy strategy, const struct cache_options *options,
+                                    const struct cache_config *config)
+{
+    if (!cache_path || !checkout_path || !options || !config) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    /* Check if checkout already exists */
+    if (is_git_repository_at(checkout_path)) {
+        if (config->verbose) {
+            printf("Checkout already exists at: %s\n", checkout_path);
+        }
+        return CACHE_SUCCESS;
+    }
+    
+    if (config->verbose) {
+        printf("Creating reference checkout at: %s\n", checkout_path);
+    }
+    
+    /* Build clone command with reference and strategy */
+    size_t cmd_len = strlen("git clone --reference \"") + strlen(cache_path) + 
+                     strlen("\" ") + 100 + strlen(cache_path) + strlen(" \"") + 
+                     strlen(checkout_path) + strlen("\"") + 1;
+    char *clone_cmd = malloc(cmd_len);
+    if (!clone_cmd) {
+        return CACHE_ERROR_MEMORY;
+    }
+    
+    char strategy_args[256] = "";
+    switch (strategy) {
+        case CLONE_STRATEGY_SHALLOW:
+            snprintf(strategy_args, sizeof(strategy_args), "--depth=%d", options->depth);
+            break;
+        case CLONE_STRATEGY_TREELESS:
+            strcpy(strategy_args, "--filter=tree:0");
+            break;
+        case CLONE_STRATEGY_BLOBLESS:
+            strcpy(strategy_args, "--filter=blob:none");
+            break;
+        case CLONE_STRATEGY_FULL:
+        default:
+            /* No additional args for full clone */
+            break;
+    }
+    
+    snprintf(clone_cmd, cmd_len, "git clone --reference \"%s\" %s \"%s\" \"%s\"",
+             cache_path, strategy_args, cache_path, checkout_path);
+    
+    if (config->verbose) {
+        printf("Executing: %s\n", clone_cmd);
+    }
+    
+    int result = system(clone_cmd);
+    free(clone_cmd);
+    
+    if (WEXITSTATUS(result) != 0) {
+        fprintf(stderr, "Error: reference checkout failed with exit code %d\n", WEXITSTATUS(result));
+        return CACHE_ERROR_GIT;
+    }
+    
+    if (config->verbose) {
+        printf("Reference checkout created successfully\n");
+    }
+    
+    return CACHE_SUCCESS;
+}
+
 /* Cache operations implementation */
 int cache_clone_repository(const char *url, const struct cache_options *options)
 {
@@ -704,8 +978,34 @@ int cache_clone_repository(const char *url, const struct cache_options *options)
     }
     free(modifiable_dir);
     
-    printf("Cache setup complete. Ready to implement git operations.\n");
-    printf("TODO: Implement actual git clone and fork operations\n");
+    /* Step 1: Create full bare repository in cache */
+    ret = create_cache_repository(repo, config);
+    if (ret != CACHE_SUCCESS) {
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    /* Step 2: Handle GitHub forking if needed */
+    if (repo->type == REPO_TYPE_GITHUB && repo->is_fork_needed && config->github_token) {
+        ret = handle_github_fork(repo, config, options);
+        if (ret != CACHE_SUCCESS && options->verbose) {
+            printf("Warning: GitHub fork operation failed: %s\n", cache_get_error_string(ret));
+            printf("Continuing with original repository...\n");
+        }
+    }
+    
+    /* Step 3: Create reference-based checkouts */
+    ret = create_reference_checkouts(repo, config, options);
+    if (ret != CACHE_SUCCESS) {
+        repo_info_destroy(repo);
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    if (options->verbose) {
+        printf("Repository caching completed successfully!\n");
+    }
     
     repo_info_destroy(repo);
     cache_config_destroy(config);
