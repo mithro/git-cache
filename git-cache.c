@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,6 +7,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <libgen.h>
+#include <dirent.h>
 
 #include "git-cache.h"
 #include "github_api.h"
@@ -573,6 +575,8 @@ int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *con
 }
 
 /* Git operation helpers - forward declarations */
+static int scan_cache_directory(const char *cache_dir, const struct cache_config *config, 
+                               const struct cache_options *options);
 static int create_reference_checkout(const char *cache_path, const char *checkout_path,
                                     enum clone_strategy strategy, const struct cache_options *options,
                                     const struct cache_config *config);
@@ -845,6 +849,104 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
     return CACHE_SUCCESS;
 }
 
+/* Scan cache directory and show repository information */
+static int scan_cache_directory(const char *cache_dir, const struct cache_config *config, 
+                               const struct cache_options *options)
+{
+    if (!cache_dir || !config || !options) {
+        return CACHE_ERROR_ARGS;
+    }
+    
+    DIR *dir = opendir(cache_dir);
+    if (!dir) {
+        printf("  Unable to scan cache directory\n");
+        return CACHE_ERROR_FILESYSTEM;
+    }
+    
+    struct dirent *entry;
+    int repo_count = 0;
+    
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            /* This is a user directory, scan for repositories */
+            char *user_dir = malloc(strlen(cache_dir) + 1 + strlen(entry->d_name) + 1);
+            if (!user_dir) {
+                closedir(dir);
+                return CACHE_ERROR_MEMORY;
+            }
+            sprintf(user_dir, "%s/%s", cache_dir, entry->d_name);
+            
+            DIR *user_dir_handle = opendir(user_dir);
+            if (user_dir_handle) {
+                struct dirent *repo_entry;
+                while ((repo_entry = readdir(user_dir_handle)) != NULL) {
+                    if (repo_entry->d_type == DT_DIR && strcmp(repo_entry->d_name, ".") != 0 && 
+                        strcmp(repo_entry->d_name, "..") != 0) {
+                        
+                        char *repo_path = malloc(strlen(user_dir) + 1 + strlen(repo_entry->d_name) + 1);
+                        if (!repo_path) {
+                            closedir(user_dir_handle);
+                            free(user_dir);
+                            closedir(dir);
+                            return CACHE_ERROR_MEMORY;
+                        }
+                        sprintf(repo_path, "%s/%s", user_dir, repo_entry->d_name);
+                        
+                        /* Check if it's a git repository */
+                        if (is_git_repository_at(repo_path)) {
+                            repo_count++;
+                            printf("  %s/%s", entry->d_name, repo_entry->d_name);
+                            
+                            if (options->verbose) {
+                                /* Show additional information */
+                                printf("\n    Cache path: %s", repo_path);
+                                
+                                /* Check for corresponding checkouts */
+                                char *checkout_path = malloc(strlen(config->checkout_root) + 1 + 
+                                                           strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1);
+                                if (checkout_path) {
+                                    sprintf(checkout_path, "%s/%s/%s", config->checkout_root, 
+                                           entry->d_name, repo_entry->d_name);
+                                    if (directory_exists(checkout_path)) {
+                                        printf("\n    Checkout: %s", checkout_path);
+                                    }
+                                    free(checkout_path);
+                                }
+                                
+                                char *modifiable_path = malloc(strlen(config->checkout_root) + strlen("/mithro/") +
+                                                             strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1);
+                                if (modifiable_path) {
+                                    sprintf(modifiable_path, "%s/mithro/%s-%s", config->checkout_root,
+                                           entry->d_name, repo_entry->d_name);
+                                    if (directory_exists(modifiable_path)) {
+                                        printf("\n    Modifiable: %s", modifiable_path);
+                                    }
+                                    free(modifiable_path);
+                                }
+                            }
+                            printf("\n");
+                        }
+                        
+                        free(repo_path);
+                    }
+                }
+                closedir(user_dir_handle);
+            }
+            free(user_dir);
+        }
+    }
+    
+    closedir(dir);
+    
+    if (repo_count == 0) {
+        printf("  No cached repositories found\n");
+    } else {
+        printf("  Total: %d cached repositories\n", repo_count);
+    }
+    
+    return CACHE_SUCCESS;
+}
+
 /* Cache operations implementation */
 int cache_clone_repository(const char *url, const struct cache_options *options)
 {
@@ -1014,13 +1116,66 @@ int cache_clone_repository(const char *url, const struct cache_options *options)
 
 int cache_status(const struct cache_options *options)
 {
-    printf("Cache status:\n");
-    if (options->verbose) {
-        printf("  Verbose mode enabled\n");
+    /* Create and load configuration */
+    struct cache_config *config = cache_config_create();
+    if (!config) {
+        return CACHE_ERROR_MEMORY;
     }
     
-    /* TODO: Implement cache status */
-    printf("TODO: Implement cache status functionality\n");
+    int ret = cache_config_load(config);
+    if (ret != CACHE_SUCCESS) {
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    if (options->verbose) {
+        config->verbose = 1;
+    }
+    
+    printf("Git Cache Status\n");
+    printf("================\n\n");
+    
+    /* Show configuration */
+    printf("Configuration:\n");
+    printf("  Cache root: %s\n", config->cache_root ? config->cache_root : "not set");
+    printf("  Checkout root: %s\n", config->checkout_root ? config->checkout_root : "not set");
+    printf("  GitHub token: %s\n", config->github_token ? "configured" : "not configured");
+    printf("  Default strategy: %s\n", 
+           config->default_strategy == CLONE_STRATEGY_FULL ? "full" :
+           config->default_strategy == CLONE_STRATEGY_SHALLOW ? "shallow" :
+           config->default_strategy == CLONE_STRATEGY_TREELESS ? "treeless" :
+           config->default_strategy == CLONE_STRATEGY_BLOBLESS ? "blobless" : "unknown");
+    printf("\n");
+    
+    /* Check cache directory status */
+    if (!config->cache_root || !directory_exists(config->cache_root)) {
+        printf("Cache directory: not found\n");
+        cache_config_destroy(config);
+        return CACHE_SUCCESS;
+    }
+    
+    /* Scan for cached repositories */
+    printf("Cached repositories:\n");
+    char *github_cache_dir = malloc(strlen(config->cache_root) + strlen("/github.com") + 1);
+    if (!github_cache_dir) {
+        cache_config_destroy(config);
+        return CACHE_ERROR_MEMORY;
+    }
+    sprintf(github_cache_dir, "%s/github.com", config->cache_root);
+    
+    if (directory_exists(github_cache_dir)) {
+        ret = scan_cache_directory(github_cache_dir, config, options);
+        if (ret != CACHE_SUCCESS) {
+            free(github_cache_dir);
+            cache_config_destroy(config);
+            return ret;
+        }
+    } else {
+        printf("  No cached repositories found\n");
+    }
+    
+    free(github_cache_dir);
+    cache_config_destroy(config);
     return CACHE_SUCCESS;
 }
 
