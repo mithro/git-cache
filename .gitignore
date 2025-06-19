@@ -32,6 +32,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.sublime-*
+.claude/
 
 # Build directories
 build/
