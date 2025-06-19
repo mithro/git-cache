@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BINARY="$PROJECT_DIR/git-cache"
 
+# Set GIT_CACHE environment variable to use project-local cache during testing
+export GIT_CACHE="$PROJECT_DIR/.cache/git"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -50,8 +53,11 @@ run_test() {
 # Function to cleanup test repositories
 cleanup_test_repos() {
     echo "Cleaning up test repositories..."
-    rm -rf "$PROJECT_DIR/.cache" 2>/dev/null || true
-    rm -rf "$PROJECT_DIR/github" 2>/dev/null || true
+    cd "$PROJECT_DIR" && make clean-cache >/dev/null 2>&1 || {
+        # Fallback to direct removal if make fails
+        rm -rf "$GIT_CACHE" 2>/dev/null || true
+        rm -rf "$PROJECT_DIR/github" 2>/dev/null || true
+    }
 }
 
 # Check if binary exists
@@ -79,7 +85,7 @@ echo -e "${YELLOW}Testing basic clone operation...${NC}"
 run_test "Basic clone" 0 "$BINARY clone https://github.com/octocat/Hello-World.git"
 
 # Verify cache structure was created
-if [ -d "$PROJECT_DIR/.cache/git/github.com/octocat/Hello-World" ]; then
+if [ -d "$GIT_CACHE/github.com/octocat/Hello-World" ]; then
     echo -e "${GREEN}✓ Cache directory created${NC}"
 else
     echo -e "${RED}✗ Cache directory not created${NC}"
@@ -122,7 +128,7 @@ $BINARY clone https://github.com/octocat/Hello-World.git >/dev/null 2>&1
 
 if [ -f "$PROJECT_DIR/github/octocat/Hello-World/.git/objects/info/alternates" ]; then
     ALTERNATES_PATH=$(cat "$PROJECT_DIR/github/octocat/Hello-World/.git/objects/info/alternates")
-    EXPECTED_PATH="$PROJECT_DIR/.cache/git/github.com/octocat/Hello-World/objects"
+    EXPECTED_PATH="$GIT_CACHE/github.com/octocat/Hello-World/objects"
     if [ "$ALTERNATES_PATH" = "$EXPECTED_PATH" ]; then
         echo -e "${GREEN}✓ Git alternates correctly configured${NC}"
     else

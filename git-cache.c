@@ -345,44 +345,43 @@ struct cache_config* cache_config_create(void)
     
     memset(config, 0, sizeof(struct cache_config));
     
-    /* Set default paths relative to current directory */
+    /* Set cache root from GIT_CACHE environment variable or default to ~/.cache/git */
+    char *git_cache = getenv("GIT_CACHE");
+    if (git_cache) {
+        config->cache_root = resolve_path(git_cache);
+    } else {
+        /* Default to ~/.cache/git */
+        char *home = get_home_directory();
+        if (home) {
+            size_t cache_len = strlen(home) + 1 + strlen(CACHE_BASE_DIR) + 1;
+            config->cache_root = malloc(cache_len);
+            if (config->cache_root) {
+                snprintf(config->cache_root, cache_len, "%s/%s", home, CACHE_BASE_DIR);
+            }
+            free(home);
+        }
+    }
+    
+    /* Set checkout root relative to current directory by default */
     char *cwd = get_current_directory();
     if (cwd) {
-        size_t cache_len = strlen(cwd) + 1 + strlen(CACHE_BASE_DIR) + 1;
-        config->cache_root = malloc(cache_len);
-        if (config->cache_root) {
-            snprintf(config->cache_root, cache_len, "%s/%s", cwd, CACHE_BASE_DIR);
-        }
-        
         size_t checkout_len = strlen(cwd) + 1 + strlen(CHECKOUT_BASE_DIR) + 1;
         config->checkout_root = malloc(checkout_len);
         if (config->checkout_root) {
             snprintf(config->checkout_root, checkout_len, "%s/%s", cwd, CHECKOUT_BASE_DIR);
         }
-        
         free(cwd);
     }
     
-    /* Fallback to home directory if current directory fails */
-    if (!config->cache_root || !config->checkout_root) {
+    /* Fallback to home directory if no cache root could be determined */
+    if (!config->cache_root) {
         char *home = get_home_directory();
         if (home) {
-            if (!config->cache_root) {
-                size_t cache_len = strlen(home) + 1 + strlen(CACHE_BASE_DIR) + 1;
-                config->cache_root = malloc(cache_len);
-                if (config->cache_root) {
-                    snprintf(config->cache_root, cache_len, "%s/%s", home, CACHE_BASE_DIR);
-                }
+            size_t cache_len = strlen(home) + 1 + strlen(CACHE_BASE_DIR) + 1;
+            config->cache_root = malloc(cache_len);
+            if (config->cache_root) {
+                snprintf(config->cache_root, cache_len, "%s/%s", home, CACHE_BASE_DIR);
             }
-            
-            if (!config->checkout_root) {
-                size_t checkout_len = strlen(home) + 1 + strlen(CHECKOUT_BASE_DIR) + 1;
-                config->checkout_root = malloc(checkout_len);
-                if (config->checkout_root) {
-                    snprintf(config->checkout_root, checkout_len, "%s/%s", home, CHECKOUT_BASE_DIR);
-                }
-            }
-            
             free(home);
         }
     }
@@ -426,7 +425,11 @@ int cache_config_load(struct cache_config *config)
     }
     
     /* Override with environment variables if set */
-    char *env_cache_root = getenv("GIT_CACHE_ROOT");
+    /* GIT_CACHE takes precedence over GIT_CACHE_ROOT for backward compatibility */
+    char *env_cache_root = getenv("GIT_CACHE");
+    if (!env_cache_root) {
+        env_cache_root = getenv("GIT_CACHE_ROOT");
+    }
     if (env_cache_root) {
         free(config->cache_root);
         config->cache_root = resolve_path(env_cache_root);
@@ -714,11 +717,49 @@ static int create_cache_repository(struct repo_info *repo, const struct cache_co
         printf("Executing: %s\n", clone_cmd);
     }
     
-    int result = system(clone_cmd);
-    free(clone_cmd);
+    /* Get parent directory for working directory */
+    char *parent_dir = malloc(strlen(repo->cache_path) + 1);
+    if (!parent_dir) {
+        free(clone_cmd);
+        return CACHE_ERROR_MEMORY;
+    }
+    strcpy(parent_dir, repo->cache_path);
+    char *last_slash = strrchr(parent_dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+    } else {
+        strcpy(parent_dir, ".");
+    }
     
-    if (WEXITSTATUS(result) != 0) {
-        fprintf(stderr, "Error: git clone failed with exit code %d\n", WEXITSTATUS(result));
+    int result = run_git_command(clone_cmd, parent_dir);
+    free(clone_cmd);
+    free(parent_dir);
+    
+    if (result != 0) {
+        fprintf(stderr, "Error: git clone failed with exit code %d\n", result);
+        fprintf(stderr, "This could be due to:\n");
+        fprintf(stderr, "  - Network connectivity issues\n");
+        fprintf(stderr, "  - Invalid repository URL: %s\n", repo->original_url);
+        fprintf(stderr, "  - Authentication required (try setting GITHUB_TOKEN)\n");
+        fprintf(stderr, "  - Repository does not exist or is private\n");
+        
+        /* Clean up any partial clone directory */
+        if (directory_exists(repo->cache_path)) {
+            char *cleanup_cmd = malloc(strlen("rm -rf \"") + strlen(repo->cache_path) + strlen("\"") + 1);
+            if (cleanup_cmd) {
+                snprintf(cleanup_cmd, strlen("rm -rf \"") + strlen(repo->cache_path) + strlen("\"") + 1, 
+                        "rm -rf \"%s\"", repo->cache_path);
+                if (config->verbose) {
+                    printf("Cleaning up partial clone directory: %s\n", repo->cache_path);
+                }
+                int cleanup_result = system(cleanup_cmd);
+                if (cleanup_result != 0 && config->verbose) {
+                    printf("Warning: cleanup command failed\n");
+                }
+                free(cleanup_cmd);
+            }
+        }
+        
         return CACHE_ERROR_GIT;
     }
     

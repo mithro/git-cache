@@ -6,7 +6,7 @@
 #define VERSION "1.0.0"
 #define PROGRAM_NAME "git-cache"
 
-/* Cache configuration - defaults to project directory */
+/* Cache configuration - defaults to home directory */
 #define CACHE_BASE_DIR ".cache/git"
 #define CHECKOUT_BASE_DIR "github"
 #define MODIFIABLE_BASE_DIR "github/mithro"
