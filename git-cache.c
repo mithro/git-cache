@@ -221,6 +221,13 @@ static int is_git_repository(void)
 
 /* Utility functions */
 
+/* Get current working directory */
+char* get_current_directory(void)
+{
+    char *cwd = getcwd(NULL, 0);
+    return cwd; /* getcwd allocates memory for us */
+}
+
 /* Get home directory */
 char* get_home_directory(void)
 {
@@ -338,22 +345,46 @@ struct cache_config* cache_config_create(void)
     
     memset(config, 0, sizeof(struct cache_config));
     
-    /* Set default paths */
-    char *home = get_home_directory();
-    if (home) {
-        size_t cache_len = strlen(home) + strlen(CACHE_BASE_DIR) + 1;
+    /* Set default paths relative to current directory */
+    char *cwd = get_current_directory();
+    if (cwd) {
+        size_t cache_len = strlen(cwd) + 1 + strlen(CACHE_BASE_DIR) + 1;
         config->cache_root = malloc(cache_len);
         if (config->cache_root) {
-            snprintf(config->cache_root, cache_len, "%s%s", home, CACHE_BASE_DIR);
+            snprintf(config->cache_root, cache_len, "%s/%s", cwd, CACHE_BASE_DIR);
         }
         
-        size_t checkout_len = strlen(home) + strlen(CHECKOUT_BASE_DIR) + 1;
+        size_t checkout_len = strlen(cwd) + 1 + strlen(CHECKOUT_BASE_DIR) + 1;
         config->checkout_root = malloc(checkout_len);
         if (config->checkout_root) {
-            snprintf(config->checkout_root, checkout_len, "%s%s", home, CHECKOUT_BASE_DIR);
+            snprintf(config->checkout_root, checkout_len, "%s/%s", cwd, CHECKOUT_BASE_DIR);
         }
         
-        free(home);
+        free(cwd);
+    }
+    
+    /* Fallback to home directory if current directory fails */
+    if (!config->cache_root || !config->checkout_root) {
+        char *home = get_home_directory();
+        if (home) {
+            if (!config->cache_root) {
+                size_t cache_len = strlen(home) + 1 + strlen(CACHE_BASE_DIR) + 1;
+                config->cache_root = malloc(cache_len);
+                if (config->cache_root) {
+                    snprintf(config->cache_root, cache_len, "%s/%s", home, CACHE_BASE_DIR);
+                }
+            }
+            
+            if (!config->checkout_root) {
+                size_t checkout_len = strlen(home) + 1 + strlen(CHECKOUT_BASE_DIR) + 1;
+                config->checkout_root = malloc(checkout_len);
+                if (config->checkout_root) {
+                    snprintf(config->checkout_root, checkout_len, "%s/%s", home, CHECKOUT_BASE_DIR);
+                }
+            }
+            
+            free(home);
+        }
     }
     
     /* Set default strategy */
@@ -561,7 +592,7 @@ int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *con
     snprintf(repo->checkout_path, checkout_len, "%s/%s/%s", 
              config->checkout_root, repo->owner, repo->name);
     
-    /* Setup modifiable path: ~/github/mithro/owner-repo */
+    /* Setup modifiable path: ./github/mithro/owner-repo */
     size_t modifiable_len = strlen(config->checkout_root) + strlen("/mithro/") + 
                             strlen(repo->owner) + 1 + strlen(repo->name) + 1;
     repo->modifiable_path = malloc(modifiable_len);

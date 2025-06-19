@@ -6,10 +6,10 @@
 #define VERSION "1.0.0"
 #define PROGRAM_NAME "git-cache"
 
-/* Cache configuration */
-#define CACHE_BASE_DIR "/.cache/git"
-#define CHECKOUT_BASE_DIR "/github"
-#define DEFAULT_CACHE_ROOT_ENV "HOME"
+/* Cache configuration - defaults to project directory */
+#define CACHE_BASE_DIR ".cache/git"
+#define CHECKOUT_BASE_DIR "github"
+#define MODIFIABLE_BASE_DIR "github/mithro"
 
 /* Repository types */
 enum repo_type {
@@ -105,6 +105,7 @@ int cache_list(const struct cache_options *options);
 int ensure_directory_exists(const char *path);
 int is_directory_empty(const char *path);
 char* resolve_path(const char *path);
+char* get_current_directory(void);
 char* get_home_directory(void);
 
 /* Error codes */

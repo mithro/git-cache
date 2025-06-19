@@ -50,9 +50,8 @@ run_test() {
 # Function to cleanup test repositories
 cleanup_test_repos() {
     echo "Cleaning up test repositories..."
-    rm -rf ~/.cache/git/github.com/octocat 2>/dev/null || true
-    rm -rf ~/github/octocat 2>/dev/null || true  
-    rm -rf ~/github/mithro/octocat-* 2>/dev/null || true
+    rm -rf "$PROJECT_DIR/.cache" 2>/dev/null || true
+    rm -rf "$PROJECT_DIR/github" 2>/dev/null || true
 }
 
 # Check if binary exists
@@ -80,21 +79,21 @@ echo -e "${YELLOW}Testing basic clone operation...${NC}"
 run_test "Basic clone" 0 "$BINARY clone https://github.com/octocat/Hello-World.git"
 
 # Verify cache structure was created
-if [ -d ~/.cache/git/github.com/octocat/Hello-World ]; then
+if [ -d "$PROJECT_DIR/.cache/git/github.com/octocat/Hello-World" ]; then
     echo -e "${GREEN}✓ Cache directory created${NC}"
 else
     echo -e "${RED}✗ Cache directory not created${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
-if [ -d ~/github/octocat/Hello-World ]; then
+if [ -d "$PROJECT_DIR/github/octocat/Hello-World" ]; then
     echo -e "${GREEN}✓ Checkout directory created${NC}"
 else
     echo -e "${RED}✗ Checkout directory not created${NC}"
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
-if [ -d ~/github/mithro/octocat-Hello-World ]; then
+if [ -d "$PROJECT_DIR/github/mithro/octocat-Hello-World" ]; then
     echo -e "${GREEN}✓ Modifiable directory created${NC}"
 else
     echo -e "${RED}✗ Modifiable directory not created${NC}"
@@ -121,9 +120,9 @@ echo -e "${YELLOW}Testing git alternates configuration...${NC}"
 cleanup_test_repos
 $BINARY clone https://github.com/octocat/Hello-World.git >/dev/null 2>&1
 
-if [ -f ~/github/octocat/Hello-World/.git/objects/info/alternates ]; then
-    ALTERNATES_PATH=$(cat ~/github/octocat/Hello-World/.git/objects/info/alternates)
-    EXPECTED_PATH="/home/$USER/.cache/git/github.com/octocat/Hello-World/objects"
+if [ -f "$PROJECT_DIR/github/octocat/Hello-World/.git/objects/info/alternates" ]; then
+    ALTERNATES_PATH=$(cat "$PROJECT_DIR/github/octocat/Hello-World/.git/objects/info/alternates")
+    EXPECTED_PATH="$PROJECT_DIR/.cache/git/github.com/octocat/Hello-World/objects"
     if [ "$ALTERNATES_PATH" = "$EXPECTED_PATH" ]; then
         echo -e "${GREEN}✓ Git alternates correctly configured${NC}"
     else
