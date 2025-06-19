@@ -652,17 +652,50 @@ static int is_git_repository_at(const char *path)
         return 0;
     }
     
-    char *check_cmd = malloc(strlen("git -C \"") + strlen(path) + strlen("\" rev-parse --git-dir >/dev/null 2>&1") + 1);
-    if (!check_cmd) {
+    /* Check if directory exists first */
+    if (!directory_exists(path)) {
         return 0;
     }
     
-    snprintf(check_cmd, strlen("git -C \"") + strlen(path) + strlen("\" rev-parse --git-dir >/dev/null 2>&1") + 1,
-             "git -C \"%s\" rev-parse --git-dir >/dev/null 2>&1", path);
+    /* For bare repositories, check for git files directly */
+    size_t path_len = strlen(path);
     
-    int result = system(check_cmd);
-    free(check_cmd);
-    return WEXITSTATUS(result) == 0;
+    /* Check for HEAD file (exists in both bare and non-bare repos) */
+    char *head_path = malloc(path_len + strlen("/HEAD") + 1);
+    if (!head_path) {
+        return 0;
+    }
+    snprintf(head_path, path_len + strlen("/HEAD") + 1, "%s/HEAD", path);
+    
+    /* Check for refs directory */
+    char *refs_path = malloc(path_len + strlen("/refs") + 1);
+    if (!refs_path) {
+        free(head_path);
+        return 0;
+    }
+    snprintf(refs_path, path_len + strlen("/refs") + 1, "%s/refs", path);
+    
+    /* Check for objects directory */
+    char *objects_path = malloc(path_len + strlen("/objects") + 1);
+    if (!objects_path) {
+        free(head_path);
+        free(refs_path);
+        return 0;
+    }
+    snprintf(objects_path, path_len + strlen("/objects") + 1, "%s/objects", path);
+    
+    /* A git repository should have HEAD file and refs + objects directories */
+    struct stat st;
+    int head_exists = (stat(head_path, &st) == 0 && S_ISREG(st.st_mode));
+    int is_git_repo = head_exists && 
+                      directory_exists(refs_path) && 
+                      directory_exists(objects_path);
+    
+    free(head_path);
+    free(refs_path);
+    free(objects_path);
+    
+    return is_git_repo;
 }
 
 /* Create full bare repository in cache location */
@@ -941,12 +974,13 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
             /* This is a user directory, scan for repositories */
-            char *user_dir = malloc(strlen(cache_dir) + 1 + strlen(entry->d_name) + 1);
+            size_t user_dir_len = strlen(cache_dir) + 1 + strlen(entry->d_name) + 1;
+            char *user_dir = malloc(user_dir_len);
             if (!user_dir) {
                 closedir(dir);
                 return CACHE_ERROR_MEMORY;
             }
-            sprintf(user_dir, "%s/%s", cache_dir, entry->d_name);
+            snprintf(user_dir, user_dir_len, "%s/%s", cache_dir, entry->d_name);
             
             DIR *user_dir_handle = opendir(user_dir);
             if (user_dir_handle) {
@@ -955,14 +989,15 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
                     if (repo_entry->d_type == DT_DIR && strcmp(repo_entry->d_name, ".") != 0 && 
                         strcmp(repo_entry->d_name, "..") != 0) {
                         
-                        char *repo_path = malloc(strlen(user_dir) + 1 + strlen(repo_entry->d_name) + 1);
+                        size_t repo_path_len = strlen(user_dir) + 1 + strlen(repo_entry->d_name) + 1;
+                        char *repo_path = malloc(repo_path_len);
                         if (!repo_path) {
                             closedir(user_dir_handle);
                             free(user_dir);
                             closedir(dir);
                             return CACHE_ERROR_MEMORY;
                         }
-                        sprintf(repo_path, "%s/%s", user_dir, repo_entry->d_name);
+                        snprintf(repo_path, repo_path_len, "%s/%s", user_dir, repo_entry->d_name);
                         
                         /* Check if it's a git repository */
                         if (is_git_repository_at(repo_path)) {
@@ -974,10 +1009,11 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
                                 printf("\n    Cache path: %s", repo_path);
                                 
                                 /* Check for corresponding checkouts */
-                                char *checkout_path = malloc(strlen(config->checkout_root) + 1 + 
-                                                           strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1);
+                                size_t checkout_path_len = strlen(config->checkout_root) + 1 + 
+                                                           strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1;
+                                char *checkout_path = malloc(checkout_path_len);
                                 if (checkout_path) {
-                                    sprintf(checkout_path, "%s/%s/%s", config->checkout_root, 
+                                    snprintf(checkout_path, checkout_path_len, "%s/%s/%s", config->checkout_root, 
                                            entry->d_name, repo_entry->d_name);
                                     if (directory_exists(checkout_path)) {
                                         printf("\n    Checkout: %s", checkout_path);
@@ -985,10 +1021,11 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
                                     free(checkout_path);
                                 }
                                 
-                                char *modifiable_path = malloc(strlen(config->checkout_root) + strlen("/mithro/") +
-                                                             strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1);
+                                size_t modifiable_path_len = strlen(config->checkout_root) + strlen("/mithro/") +
+                                                             strlen(entry->d_name) + 1 + strlen(repo_entry->d_name) + 1;
+                                char *modifiable_path = malloc(modifiable_path_len);
                                 if (modifiable_path) {
-                                    sprintf(modifiable_path, "%s/mithro/%s-%s", config->checkout_root,
+                                    snprintf(modifiable_path, modifiable_path_len, "%s/mithro/%s-%s", config->checkout_root,
                                            entry->d_name, repo_entry->d_name);
                                     if (directory_exists(modifiable_path)) {
                                         printf("\n    Modifiable: %s", modifiable_path);
@@ -1228,12 +1265,13 @@ int cache_status(const struct cache_options *options)
     
     /* Scan for cached repositories */
     printf("Cached repositories:\n");
-    char *github_cache_dir = malloc(strlen(config->cache_root) + strlen("/github.com") + 1);
+    size_t github_cache_dir_len = strlen(config->cache_root) + strlen("/github.com") + 1;
+    char *github_cache_dir = malloc(github_cache_dir_len);
     if (!github_cache_dir) {
         cache_config_destroy(config);
         return CACHE_ERROR_MEMORY;
     }
-    sprintf(github_cache_dir, "%s/github.com", config->cache_root);
+    snprintf(github_cache_dir, github_cache_dir_len, "%s/github.com", config->cache_root);
     
     if (directory_exists(github_cache_dir)) {
         ret = scan_cache_directory(github_cache_dir, config, options);

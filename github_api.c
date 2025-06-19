@@ -14,6 +14,9 @@ static size_t github_response_callback(void *contents, size_t size, size_t nmemb
     
     char *new_data = realloc(response->data, new_size + 1);
     if (!new_data) {
+        /* realloc failed, but original response->data is still valid */
+        /* In this callback context, we can't free the original data as it's managed by the response struct */
+        /* Just return 0 to indicate failure to curl */
         return 0;
     }
     
