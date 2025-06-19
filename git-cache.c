@@ -613,7 +613,7 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
                                const struct cache_options *options);
 static int create_reference_checkout(const char *cache_path, const char *checkout_path,
                                     enum clone_strategy strategy, const struct cache_options *options,
-                                    const struct cache_config *config);
+                                    const struct cache_config *config, const char *original_url);
 
 /* Git operation helpers */
 
@@ -870,14 +870,14 @@ static int create_reference_checkouts(struct repo_info *repo, const struct cache
     
     /* Create read-only checkout */
     int ret = create_reference_checkout(repo->cache_path, repo->checkout_path, 
-                                       repo->strategy, options, config);
+                                       repo->strategy, options, config, repo->original_url);
     if (ret != CACHE_SUCCESS) {
         return ret;
     }
     
     /* Create modifiable checkout (always use blobless for development) */
     ret = create_reference_checkout(repo->cache_path, repo->modifiable_path,
-                                   CLONE_STRATEGY_BLOBLESS, options, config);
+                                   CLONE_STRATEGY_BLOBLESS, options, config, repo->original_url);
     if (ret != CACHE_SUCCESS) {
         return ret;
     }
@@ -888,7 +888,7 @@ static int create_reference_checkouts(struct repo_info *repo, const struct cache
 /* Create a single reference-based checkout */
 static int create_reference_checkout(const char *cache_path, const char *checkout_path,
                                     enum clone_strategy strategy, const struct cache_options *options,
-                                    const struct cache_config *config)
+                                    const struct cache_config *config, const char *original_url)
 {
     if (!cache_path || !checkout_path || !options || !config) {
         return CACHE_ERROR_ARGS;
@@ -933,7 +933,7 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
     }
     
     snprintf(clone_cmd, cmd_len, "git clone --reference \"%s\" %s \"%s\" \"%s\"",
-             cache_path, strategy_args, cache_path, checkout_path);
+             cache_path, strategy_args, original_url, checkout_path);
     
     if (config->verbose) {
         printf("Executing: %s\n", clone_cmd);
@@ -1291,16 +1291,86 @@ int cache_status(const struct cache_options *options)
 
 int cache_clean(const struct cache_options *options)
 {
-    printf("Cache clean:\n");
-    if (options->verbose) {
-        printf("  Verbose mode enabled\n");
-    }
-    if (options->force) {
-        printf("  Force mode enabled\n");
+    /* Create and load configuration */
+    struct cache_config *config = cache_config_create();
+    if (!config) {
+        return CACHE_ERROR_MEMORY;
     }
     
-    /* TODO: Implement cache cleanup */
-    printf("TODO: Implement cache clean functionality\n");
+    int ret = cache_config_load(config);
+    if (ret != CACHE_SUCCESS) {
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    if (options->verbose) {
+        printf("Cleaning git cache...\n");
+        printf("Cache root: %s\n", config->cache_root ? config->cache_root : "not set");
+        printf("Checkout root: %s\n", config->checkout_root ? config->checkout_root : "not set");
+    }
+    
+    if (!options->force) {
+        printf("This will remove all cached repositories and checkouts.\n");
+        printf("Use --force to confirm this action.\n");
+        cache_config_destroy(config);
+        return CACHE_SUCCESS;
+    }
+    
+    /* Remove cache directory */
+    if (config->cache_root && directory_exists(config->cache_root)) {
+        if (options->verbose) {
+            printf("Removing cache directory: %s\n", config->cache_root);
+        }
+        
+        size_t cmd_len = strlen("rm -rf \"") + strlen(config->cache_root) + strlen("\"") + 1;
+        char *rm_cmd = malloc(cmd_len);
+        if (!rm_cmd) {
+            cache_config_destroy(config);
+            return CACHE_ERROR_MEMORY;
+        }
+        snprintf(rm_cmd, cmd_len, "rm -rf \"%s\"", config->cache_root);
+        
+        int result = system(rm_cmd);
+        free(rm_cmd);
+        
+        if (WEXITSTATUS(result) != 0) {
+            fprintf(stderr, "Error: failed to remove cache directory\n");
+            cache_config_destroy(config);
+            return CACHE_ERROR_FILESYSTEM;
+        }
+    }
+    
+    /* Remove checkout directory */
+    if (config->checkout_root && directory_exists(config->checkout_root)) {
+        if (options->verbose) {
+            printf("Removing checkout directory: %s\n", config->checkout_root);
+        }
+        
+        size_t cmd_len = strlen("rm -rf \"") + strlen(config->checkout_root) + strlen("\"") + 1;
+        char *rm_cmd = malloc(cmd_len);
+        if (!rm_cmd) {
+            cache_config_destroy(config);
+            return CACHE_ERROR_MEMORY;
+        }
+        snprintf(rm_cmd, cmd_len, "rm -rf \"%s\"", config->checkout_root);
+        
+        int result = system(rm_cmd);
+        free(rm_cmd);
+        
+        if (WEXITSTATUS(result) != 0) {
+            fprintf(stderr, "Error: failed to remove checkout directory\n");
+            cache_config_destroy(config);
+            return CACHE_ERROR_FILESYSTEM;
+        }
+    }
+    
+    if (options->verbose) {
+        printf("Cache cleanup completed successfully\n");
+    } else {
+        printf("Cache cleaned\n");
+    }
+    
+    cache_config_destroy(config);
     return CACHE_SUCCESS;
 }
 
@@ -1318,13 +1388,54 @@ int cache_sync(const struct cache_options *options)
 
 int cache_list(const struct cache_options *options)
 {
-    printf("Cache list:\n");
-    if (options->verbose) {
-        printf("  Verbose mode enabled\n");
+    /* Create and load configuration */
+    struct cache_config *config = cache_config_create();
+    if (!config) {
+        return CACHE_ERROR_MEMORY;
     }
     
-    /* TODO: Implement cache list */
-    printf("TODO: Implement cache list functionality\n");
+    int ret = cache_config_load(config);
+    if (ret != CACHE_SUCCESS) {
+        cache_config_destroy(config);
+        return ret;
+    }
+    
+    if (options->verbose) {
+        config->verbose = 1;
+    }
+    
+    printf("Cached Repositories\n");
+    printf("==================\n\n");
+    
+    /* Check cache directory status */
+    if (!config->cache_root || !directory_exists(config->cache_root)) {
+        printf("No cache directory found\n");
+        cache_config_destroy(config);
+        return CACHE_SUCCESS;
+    }
+    
+    /* Scan for cached repositories */
+    size_t github_cache_dir_len = strlen(config->cache_root) + strlen("/github.com") + 1;
+    char *github_cache_dir = malloc(github_cache_dir_len);
+    if (!github_cache_dir) {
+        cache_config_destroy(config);
+        return CACHE_ERROR_MEMORY;
+    }
+    snprintf(github_cache_dir, github_cache_dir_len, "%s/github.com", config->cache_root);
+    
+    if (directory_exists(github_cache_dir)) {
+        ret = scan_cache_directory(github_cache_dir, config, options);
+        if (ret != CACHE_SUCCESS) {
+            free(github_cache_dir);
+            cache_config_destroy(config);
+            return ret;
+        }
+    } else {
+        printf("No cached repositories found\n");
+    }
+    
+    free(github_cache_dir);
+    cache_config_destroy(config);
     return CACHE_SUCCESS;
 }
 
