@@ -1,5 +1,7 @@
 # Compiled binaries
 git-mycommand
+git-cache
+github_test
 *.exe
 
 # Object files
@@ -34,6 +36,10 @@ Thumbs.db
 # Build directories
 build/
 dist/
+
+# Test and cache directories
+.cache/
+github/
 
 # Core dumps
 core
