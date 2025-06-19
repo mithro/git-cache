@@ -4,6 +4,8 @@
 
 This document outlines the implementation plan for a custom git clone replacement with advanced caching and mirroring capabilities. The tool will be implemented as a git subcommand called `git-cache` that provides intelligent repository caching, automatic forking, and multi-location mirroring.
 
+**Note**: The implementation uses project-local directories (`.cache/` and `github/` relative to current working directory) rather than home directory paths to avoid polluting user's home directory and enable project-specific caching.
+
 ## Project Goals
 
 - Replace standard `git clone` with a caching-aware alternative
@@ -17,23 +19,26 @@ This document outlines the implementation plan for a custom git clone replacemen
 
 The tool will manage repositories in three distinct locations:
 
-1. **Cache Repository**: `~/.cache/git/github.com/<username>/<repo>`
+1. **Cache Repository**: `.cache/git/github.com/<username>/<repo>`
    - **Full bare repository** containing ALL git objects (blobs, trees, commits)
    - Acts as complete local object store and reference mirror
    - Contains full history and all file contents
    - Shared across multiple checkouts for storage efficiency
+   - Located relative to current working directory (project-local)
 
-2. **Read-Only Checkout**: `~/github/<username>/<repo>`
+2. **Read-Only Checkout**: `github/<username>/<repo>`
    - **Shallow/treeless/blobless** working directory checkout
    - References cache repository using `--reference` mechanism
    - Optimized for browsing and inspection with minimal local storage
    - Git objects shared with cache repository
+   - Located relative to current working directory (project-local)
 
-3. **Modifiable Checkout**: `~/github/mithro/<username>-<repo>`
+3. **Modifiable Checkout**: `github/mithro/<username>-<repo>`
    - **Partial clone** working directory for development
    - References cache repository using `--reference` mechanism
    - Connected to forked repository for push operations
    - Supports development workflows with shared object storage
+   - Located relative to current working directory (project-local)
 
 ### Remote Configuration
 
@@ -54,7 +59,7 @@ Each repository will maintain multiple remotes:
 - [ ] Extend argument parsing for cache-specific options
 
 #### 1.2 Cache Directory Management
-- [ ] Create `~/.cache/git` directory structure
+- [ ] Create `.cache/git` directory structure (project-local)
 - [ ] Implement cache location resolution
 - [ ] Add cache cleanup and maintenance functions
 - [ ] Design cache metadata storage
@@ -121,7 +126,7 @@ Each repository will maintain multiple remotes:
 
 #### 4.2 Submodule Cache Management
 - [ ] Create cache entries for each submodule
-- [ ] Implement recursive caching: `~/.cache/git/github.com/<submodule-user>/<submodule-repo>`
+- [ ] Implement recursive caching: `.cache/git/github.com/<submodule-user>/<submodule-repo>`
 - [ ] Handle submodule URL rewriting for caching
 - [ ] Support submodule-specific clone strategies
 - [ ] Manage submodule cache updates independently
@@ -259,24 +264,24 @@ int setup_remote_mirrors(struct cache_repo *repo);
 
 ### Configuration Files
 
-- `~/.cache/git/config` - Global cache configuration
-- `~/.config/git-cache/settings` - User preferences  
+- `.cache/git/config` - Local cache configuration (project-local)
+- Environment variables for global settings (GIT_CACHE_ROOT, GIT_CHECKOUT_ROOT)
 - Per-repository metadata in cache directories
-- `~/.cache/git/github.com/<user>/<repo>/submodules.cache` - Submodule cache mapping
+- `.cache/git/github.com/<user>/<repo>/submodules.cache` - Submodule cache mapping (project-local)
 
 ### Reference Architecture Example
 
 ```bash
-# Step 1: Create full bare repository in cache
-git clone --bare https://github.com/user/repo.git ~/.cache/git/github.com/user/repo
+# Step 1: Create full bare repository in cache (project-local)
+git clone --bare https://github.com/user/repo.git .cache/git/github.com/user/repo
 
-# Step 2: Create shallow checkout using reference
-git clone --depth=1 --reference ~/.cache/git/github.com/user/repo \
-    https://github.com/user/repo.git ~/github/user/repo
+# Step 2: Create shallow checkout using reference (project-local)
+git clone --depth=1 --reference .cache/git/github.com/user/repo \
+    https://github.com/user/repo.git github/user/repo
 
-# Step 3: Create development checkout with reference
-git clone --filter=blob:none --reference ~/.cache/git/github.com/user/repo \
-    https://github.com/mithro-mirrors/user-repo.git ~/github/mithro/user-repo
+# Step 3: Create development checkout with reference (project-local)
+git clone --filter=blob:none --reference .cache/git/github.com/user/repo \
+    https://github.com/mithro-mirrors/user-repo.git github/mithro/user-repo
 
 # Result: Three repositories sharing the same git objects
 # - Cache: ~2GB (full repository)
@@ -288,20 +293,20 @@ git clone --filter=blob:none --reference ~/.cache/git/github.com/user/repo \
 ### Submodule Reference Chain Example
 
 ```bash
-# Parent repository with submodules
-~/.cache/git/github.com/user/parent-repo/           # Full parent cache
-~/.cache/git/github.com/vendor/submodule1/          # Full submodule1 cache  
-~/.cache/git/github.com/vendor/submodule2/          # Full submodule2 cache
+# Parent repository with submodules (project-local)
+.cache/git/github.com/user/parent-repo/           # Full parent cache
+.cache/git/github.com/vendor/submodule1/          # Full submodule1 cache  
+.cache/git/github.com/vendor/submodule2/          # Full submodule2 cache
 
-# Checkout with submodule references
-~/github/user/parent-repo/                          # Shallow parent checkout
-~/github/user/parent-repo/vendor/submodule1/        # References submodule1 cache
-~/github/user/parent-repo/vendor/submodule2/        # References submodule2 cache
+# Checkout with submodule references (project-local)
+github/user/parent-repo/                          # Shallow parent checkout
+github/user/parent-repo/vendor/submodule1/        # References submodule1 cache
+github/user/parent-repo/vendor/submodule2/        # References submodule2 cache
 
 # Git alternates chain:
-# parent-repo/.git/objects/info/alternates -> ~/.cache/git/github.com/user/parent-repo/objects
-# submodule1/.git/objects/info/alternates -> ~/.cache/git/github.com/vendor/submodule1/objects
-# submodule2/.git/objects/info/alternates -> ~/.cache/git/github.com/vendor/submodule2/objects
+# parent-repo/.git/objects/info/alternates -> .cache/git/github.com/user/parent-repo/objects
+# submodule1/.git/objects/info/alternates -> .cache/git/github.com/vendor/submodule1/objects
+# submodule2/.git/objects/info/alternates -> .cache/git/github.com/vendor/submodule2/objects
 ```
 
 ## Testing Strategy
@@ -364,7 +369,7 @@ git clone --filter=blob:none --reference ~/.cache/git/github.com/user/repo \
 
 ### Installation Options
 - System-wide installation (`/usr/local/bin`)
-- User-local installation (`~/.local/bin`)
+- User-local installation (consider using `~/.local/bin` for system-wide usage)
 - Container-based deployment
 - Package manager integration
 

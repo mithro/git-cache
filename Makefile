@@ -15,7 +15,7 @@ HEADERS = git-mycommand.h git-cache.h github_api.h
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-.PHONY: all clean install uninstall test github-test cache-test
+.PHONY: all clean install uninstall test github-test cache-test clean-cache clean-all help
 
 all: $(TARGET) $(CACHE_TARGET)
 
@@ -37,6 +37,46 @@ $(GITHUB_TARGET): $(GITHUB_OBJECTS) github_test.o
 
 clean:
 	rm -f $(OBJECTS) $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o $(TARGET) $(CACHE_TARGET) $(GITHUB_TARGET)
+
+clean-cache:
+	@echo "Cleaning cache and repository directories..."
+	rm -rf .cache github
+	@echo "Cache cleanup complete"
+
+clean-all: clean clean-cache
+	@echo "Full cleanup complete"
+
+help:
+	@echo "Git Cache Tool - Makefile Targets"
+	@echo "=================================="
+	@echo ""
+	@echo "Build targets:"
+	@echo "  all          Build all programs (git-mycommand and git-cache)"
+	@echo "  cache        Build git-cache program only"
+	@echo "  github       Build github_test program only"
+	@echo ""
+	@echo "Test targets:"
+	@echo "  test         Run git-mycommand tests"
+	@echo "  github-test  Run GitHub API tests"
+	@echo "  cache-test   Run git-cache integration tests"
+	@echo ""
+	@echo "Cleanup targets:"
+	@echo "  clean        Remove compiled objects and binaries"
+	@echo "  clean-cache  Remove cache and repository directories (.cache, github)"
+	@echo "  clean-all    Full cleanup (clean + clean-cache)"
+	@echo ""
+	@echo "Install targets:"
+	@echo "  install      Install binaries to $(BINDIR)"
+	@echo "  uninstall    Remove binaries from $(BINDIR)"
+	@echo ""
+	@echo "Development targets:"
+	@echo "  debug        Build with debug symbols"
+	@echo "  static       Build with static linking"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make cache && ./git-cache clone https://github.com/user/repo.git"
+	@echo "  make clean-cache  # Clean up test repositories"
+	@echo "  make cache-test   # Run full test suite"
 
 install: $(TARGET)
 	install -d $(BINDIR)
