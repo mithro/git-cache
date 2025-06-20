@@ -1179,7 +1179,8 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	         "%s.tmp.%ld", repo->cache_path, (long)now);
 	
 	/* Create new bare repository in temporary location */
-	size_t cmd_len = strlen("git clone --bare \"") + strlen(repo->original_url) + 
+	const char *recursive_args = (config->recursive_submodules) ? " --recurse-submodules" : "";
+	size_t cmd_len = strlen("git clone --bare") + strlen(recursive_args) + strlen(" \"") + strlen(repo->original_url) + 
 	                 strlen("\" \"") + strlen(temp_path) + strlen("\"") + 1;
 	char *clone_cmd = malloc(cmd_len);
 	if (!clone_cmd) {
@@ -1192,8 +1193,8 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
 	}
 	
-	snprintf(clone_cmd, cmd_len, "git clone --bare \"%s\" \"%s\"", 
-	         repo->original_url, temp_path);
+	snprintf(clone_cmd, cmd_len, "git clone --bare%s \"%s\" \"%s\"", 
+	         recursive_args, repo->original_url, temp_path);
 	
 	if (config->verbose) {
 	    printf("Executing: %s\n", clone_cmd);
@@ -1536,8 +1537,9 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	}
 	
 	/* Build clone command with precise length calculation */
+	const char *recursive_args = (config->recursive_submodules) ? " --recurse-submodules" : "";
 	size_t cmd_len = strlen("git clone --reference \"") + strlen(cache_path) + 
-	                 strlen("\" ") + strlen(strategy_args) + strlen(" \"") + 
+	                 strlen("\" ") + strlen(strategy_args) + strlen(recursive_args) + strlen(" \"") + 
 	                 strlen(original_url) + strlen("\" \"") + strlen(temp_path) + strlen("\"") + 1;
 	char *clone_cmd = malloc(cmd_len);
 	if (!clone_cmd) {
@@ -1550,8 +1552,8 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
 	}
 	
-	snprintf(clone_cmd, cmd_len, "git clone --reference \"%s\" %s \"%s\" \"%s\"",
-	         cache_path, strategy_args, original_url, temp_path);
+	snprintf(clone_cmd, cmd_len, "git clone --reference \"%s\" %s%s \"%s\" \"%s\"",
+	         cache_path, strategy_args, recursive_args, original_url, temp_path);
 	
 	if (config->verbose) {
 	    printf("Executing: %s\n", clone_cmd);
