@@ -8,9 +8,25 @@
 #include <errno.h>
 #include <libgen.h>
 #include <dirent.h>
+#include <time.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <signal.h>
 
 #include "git-cache.h"
 #include "github_api.h"
+
+/* Lock file settings */
+#define LOCK_SUFFIX ".lock"
+#define LOCK_TIMEOUT 300  /* 5 minutes timeout for stale locks */
+#define LOCK_WAIT_INTERVAL 100000  /* 100ms between lock attempts */
+#define LOCK_MAX_ATTEMPTS 600  /* Max 60 seconds of waiting */
+
+/* Macro for returning with lock cleanup */
+#define RETURN_WITH_LOCK_CLEANUP(lock_path, retval) do { \
+	release_lock(lock_path); \
+	return (retval); \
+} while(0)
 
 /* Print usage information */
 void print_usage(const char *program_name)
@@ -606,32 +622,18 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 
 /* Git operation helpers */
 
-/* Execute git command and return exit code */
-static int run_git_command(const char *command, const char *working_dir)
+/* Check if a file exists */
+static int file_exists(const char *path)
 {
-	if (!command) {
-	    return -1;
+	if (!path) {
+	    return 0;
 	}
-	
-	char *full_command;
-	if (working_dir) {
-	    size_t cmd_len = strlen("cd \"") + strlen(working_dir) + strlen("\" && ") + strlen(command) + 1;
-	    full_command = malloc(cmd_len);
-	    if (!full_command) {
-	        return -1;
-	    }
-	    snprintf(full_command, cmd_len, "cd \"%s\" && %s", working_dir, command);
-	} else {
-	    full_command = malloc(strlen(command) + 1);
-	    if (!full_command) {
-	        return -1;
-	    }
-	    strcpy(full_command, command);
+	FILE *file = fopen(path, "r");
+	if (file) {
+	    fclose(file);
+	    return 1;
 	}
-	
-	int result = system(full_command);
-	free(full_command);
-	return WEXITSTATUS(result);
+	return 0;
 }
 
 /* Check if a git repository exists at the given path */
@@ -687,7 +689,380 @@ static int is_git_repository_at(const char *path)
 	return is_git_repo;
 }
 
-/* Create full bare repository in cache location */
+/* Validate that a git repository is healthy and complete */
+static int validate_git_repository(const char *repo_path, int is_bare)
+{
+	if (!repo_path) {
+	    return 0;
+	}
+	
+	/* For working tree repositories, git files are in .git subdirectory */
+	char *git_dir_path;
+	if (is_bare) {
+	    git_dir_path = malloc(strlen(repo_path) + 1);
+	    if (!git_dir_path) {
+	        return 0;
+	    }
+	    strcpy(git_dir_path, repo_path);
+	} else {
+	    git_dir_path = malloc(strlen(repo_path) + strlen("/.git") + 1);
+	    if (!git_dir_path) {
+	        return 0;
+	    }
+	    snprintf(git_dir_path, strlen(repo_path) + strlen("/.git") + 1, "%s/.git", repo_path);
+	}
+	
+	/* Check if the git directory exists */
+	if (!directory_exists(git_dir_path)) {
+	    free(git_dir_path);
+	    return 0;
+	}
+	
+	/* Check for essential git files/directories */
+	char *objects_path = malloc(strlen(git_dir_path) + strlen("/objects") + 1);
+	if (!objects_path) {
+	    free(git_dir_path);
+	    return 0;
+	}
+	snprintf(objects_path, strlen(git_dir_path) + strlen("/objects") + 1, "%s/objects", git_dir_path);
+	
+	char *refs_path = malloc(strlen(git_dir_path) + strlen("/refs") + 1);
+	if (!refs_path) {
+	    free(git_dir_path);
+	    free(objects_path);
+	    return 0;
+	}
+	snprintf(refs_path, strlen(git_dir_path) + strlen("/refs") + 1, "%s/refs", git_dir_path);
+	
+	char *head_path = malloc(strlen(git_dir_path) + strlen("/HEAD") + 1);
+	if (!head_path) {
+	    free(git_dir_path);
+	    free(objects_path);
+	    free(refs_path);
+	    return 0;
+	}
+	snprintf(head_path, strlen(git_dir_path) + strlen("/HEAD") + 1, "%s/HEAD", git_dir_path);
+	
+	int valid = directory_exists(objects_path) && 
+	           directory_exists(refs_path) && 
+	           file_exists(head_path);
+	
+	free(git_dir_path);
+	free(objects_path);
+	free(refs_path);
+	free(head_path);
+	
+	return valid;
+}
+
+/* Safely remove directory with validation */
+static int safe_remove_directory(const char *path, const struct cache_config *config)
+{
+	if (!path || strlen(path) < 3) {
+	    return CACHE_ERROR_ARGS;
+	}
+	
+	/* Safety check: ensure we're not removing system directories */
+	if (strcmp(path, "/") == 0 || strcmp(path, "/home") == 0 || 
+	    strcmp(path, "/usr") == 0 || strcmp(path, "/var") == 0) {
+	    if (config->verbose) {
+	        printf("Error: Refusing to remove system directory: %s\n", path);
+	    }
+	    return CACHE_ERROR_ARGS;
+	}
+	
+	if (config->verbose) {
+	    printf("Safely removing directory: %s\n", path);
+	}
+	
+	char *rm_cmd = malloc(strlen("rm -rf \"") + strlen(path) + strlen("\"") + 1);
+	if (!rm_cmd) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	snprintf(rm_cmd, strlen("rm -rf \"") + strlen(path) + strlen("\"") + 1,
+	         "rm -rf \"%s\"", path);
+	
+	int result = system(rm_cmd);
+	free(rm_cmd);
+	
+	if (WEXITSTATUS(result) != 0) {
+	    if (config->verbose) {
+	        printf("Warning: Failed to remove directory %s\n", path);
+	    }
+	    return CACHE_ERROR_FILESYSTEM;
+	}
+	
+	return CACHE_SUCCESS;
+}
+
+/* Create a backup of an existing repository */
+static int backup_repository(const char *repo_path, char **backup_path, const struct cache_config *config)
+{
+	if (!repo_path || !backup_path) {
+	    return CACHE_ERROR_ARGS;
+	}
+	
+	*backup_path = malloc(strlen(repo_path) + strlen(".backup.") + 16);
+	if (!*backup_path) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	/* Create backup with timestamp */
+	time_t now = time(NULL);
+	snprintf(*backup_path, strlen(repo_path) + strlen(".backup.") + 16,
+	         "%s.backup.%ld", repo_path, (long)now);
+	
+	if (config->verbose) {
+	    printf("Creating backup: %s -> %s\n", repo_path, *backup_path);
+	}
+	
+	char *mv_cmd = malloc(strlen("mv \"") + strlen(repo_path) + strlen("\" \"") + 
+	                     strlen(*backup_path) + strlen("\"") + 1);
+	if (!mv_cmd) {
+	    free(*backup_path);
+	    *backup_path = NULL;
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	snprintf(mv_cmd, strlen("mv \"") + strlen(repo_path) + strlen("\" \"") + 
+	         strlen(*backup_path) + strlen("\"") + 1,
+	         "mv \"%s\" \"%s\"", repo_path, *backup_path);
+	
+	int result = system(mv_cmd);
+	free(mv_cmd);
+	
+	if (WEXITSTATUS(result) != 0) {
+	    free(*backup_path);
+	    *backup_path = NULL;
+	    return CACHE_ERROR_FILESYSTEM;
+	}
+	
+	return CACHE_SUCCESS;
+}
+
+/* Restore a repository from backup */
+static int restore_from_backup(const char *backup_path, const char *repo_path, const struct cache_config *config)
+{
+	if (!backup_path || !repo_path) {
+	    return CACHE_ERROR_ARGS;
+	}
+	
+	if (config->verbose) {
+	    printf("Restoring from backup: %s -> %s\n", backup_path, repo_path);
+	}
+	
+	char *mv_cmd = malloc(strlen("mv \"") + strlen(backup_path) + strlen("\" \"") + 
+	                     strlen(repo_path) + strlen("\"") + 1);
+	if (!mv_cmd) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	snprintf(mv_cmd, strlen("mv \"") + strlen(backup_path) + strlen("\" \"") + 
+	         strlen(repo_path) + strlen("\"") + 1,
+	         "mv \"%s\" \"%s\"", backup_path, repo_path);
+	
+	int result = system(mv_cmd);
+	free(mv_cmd);
+	
+	return (WEXITSTATUS(result) == 0) ? CACHE_SUCCESS : CACHE_ERROR_FILESYSTEM;
+}
+
+/* Execute git command and return exit code */
+static int run_git_command(const char *command, const char *working_dir)
+{
+	if (!command) {
+	    return -1;
+	}
+	
+	char *full_command;
+	if (working_dir) {
+	    size_t cmd_len = strlen("cd \"") + strlen(working_dir) + strlen("\" && ") + strlen(command) + 1;
+	    full_command = malloc(cmd_len);
+	    if (!full_command) {
+	        return -1;
+	    }
+	    snprintf(full_command, cmd_len, "cd \"%s\" && %s", working_dir, command);
+	} else {
+	    full_command = malloc(strlen(command) + 1);
+	    if (!full_command) {
+	        return -1;
+	    }
+	    strcpy(full_command, command);
+	}
+	
+	int result = system(full_command);
+	free(full_command);
+	return WEXITSTATUS(result);
+}
+
+/* Lock file management functions */
+
+/* Get lock file path for a given resource */
+static char* get_lock_path(const char *resource_path)
+{
+	if (!resource_path) {
+	    return NULL;
+	}
+	
+	size_t len = strlen(resource_path) + strlen(LOCK_SUFFIX) + 1;
+	char *lock_path = malloc(len);
+	if (!lock_path) {
+	    return NULL;
+	}
+	
+	snprintf(lock_path, len, "%s%s", resource_path, LOCK_SUFFIX);
+	return lock_path;
+}
+
+/* Check if a lock file is stale (older than timeout) */
+static int is_lock_stale(const char *lock_path)
+{
+	struct stat st;
+	if (stat(lock_path, &st) != 0) {
+	    return 1;  /* Lock doesn't exist or can't be accessed */
+	}
+	
+	time_t now = time(NULL);
+	time_t age = now - st.st_mtime;
+	
+	return age > LOCK_TIMEOUT;
+}
+
+/* Write PID to lock file */
+static int write_lock_pid(int fd)
+{
+	char pid_str[32];
+	snprintf(pid_str, sizeof(pid_str), "%d\n", getpid());
+	
+	if (ftruncate(fd, 0) < 0) {
+	    return -1;
+	}
+	
+	if (lseek(fd, 0, SEEK_SET) < 0) {
+	    return -1;
+	}
+	
+	ssize_t written = write(fd, pid_str, strlen(pid_str));
+	return (written == (ssize_t)strlen(pid_str)) ? 0 : -1;
+}
+
+/* Read PID from lock file */
+static pid_t read_lock_pid(const char *lock_path)
+{
+	FILE *f = fopen(lock_path, "r");
+	if (!f) {
+	    return -1;
+	}
+	
+	pid_t pid = -1;
+	fscanf(f, "%d", &pid);
+	fclose(f);
+	
+	return pid;
+}
+
+/* Check if a process is still running */
+static int is_process_running(pid_t pid)
+{
+	if (pid <= 0) {
+	    return 0;
+	}
+	
+	/* Check if process exists by sending signal 0 */
+	return kill(pid, 0) == 0;
+}
+
+/* Acquire a lock on a resource with timeout and stale lock handling */
+static int acquire_lock(const char *resource_path, const struct cache_config *config)
+{
+	char *lock_path = get_lock_path(resource_path);
+	if (!lock_path) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	int attempts = 0;
+	int lock_fd = -1;
+	
+	while (attempts < LOCK_MAX_ATTEMPTS) {
+	    /* Try to create lock file exclusively */
+	    lock_fd = open(lock_path, O_CREAT | O_EXCL | O_WRONLY, 0644);
+	    
+	    if (lock_fd >= 0) {
+	        /* Successfully created lock file */
+	        if (write_lock_pid(lock_fd) == 0) {
+	            close(lock_fd);
+	            free(lock_path);
+	            return CACHE_SUCCESS;
+	        }
+	        /* Failed to write PID, cleanup */
+	        close(lock_fd);
+	        unlink(lock_path);
+	        free(lock_path);
+	        return CACHE_ERROR_FILESYSTEM;
+	    }
+	    
+	    /* Lock file exists, check if it's stale */
+	    if (errno == EEXIST) {
+	        if (is_lock_stale(lock_path)) {
+	            /* Check if the process holding the lock is still running */
+	            pid_t holder_pid = read_lock_pid(lock_path);
+	            if (holder_pid <= 0 || !is_process_running(holder_pid)) {
+	                if (config->verbose) {
+	                    printf("Removing stale lock file: %s (PID %d)\n", lock_path, holder_pid);
+	                }
+	                unlink(lock_path);
+	                continue;  /* Try again */
+	            }
+	        }
+	        
+	        /* Lock is held by another process */
+	        if (attempts == 0 && config->verbose) {
+	            pid_t holder_pid = read_lock_pid(lock_path);
+	            printf("Waiting for lock held by PID %d...\n", holder_pid);
+	        }
+	        
+	        usleep(LOCK_WAIT_INTERVAL);
+	        attempts++;
+	    } else {
+	        /* Other error */
+	        if (config->verbose) {
+	            printf("Failed to create lock file: %s\n", strerror(errno));
+	        }
+	        free(lock_path);
+	        return CACHE_ERROR_FILESYSTEM;
+	    }
+	}
+	
+	/* Timeout waiting for lock */
+	if (config->verbose) {
+	    printf("Timeout waiting for lock on: %s\n", resource_path);
+	}
+	free(lock_path);
+	return CACHE_ERROR_FILESYSTEM;
+}
+
+/* Release a lock on a resource */
+static int release_lock(const char *resource_path)
+{
+	char *lock_path = get_lock_path(resource_path);
+	if (!lock_path) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	/* Only remove if we own it */
+	pid_t lock_pid = read_lock_pid(lock_path);
+	if (lock_pid == getpid()) {
+	    unlink(lock_path);
+	}
+	
+	free(lock_path);
+	return CACHE_SUCCESS;
+}
+
+/* Cleanup function to release locks on exit - for future signal handler use */
+/* Currently unused but kept for future enhancement */
+
+/* Create full bare repository in cache location with robust error handling */
 static int create_cache_repository(const struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
@@ -698,53 +1073,77 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    printf("Creating cache repository at: %s\n", repo->cache_path);
 	}
 	
+	/* Acquire lock for cache repository operations */
+	int lock_ret = acquire_lock(repo->cache_path, config);
+	if (lock_ret != CACHE_SUCCESS) {
+	    fprintf(stderr, "error: failed to acquire lock for cache repository\n");
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, lock_ret);
+	}
+	
+	char *backup_path = NULL;
+	
 	/* Check if cache already exists */
-	if (is_git_repository_at(repo->cache_path)) {
-	    if (config->verbose) {
-	        printf("Cache repository already exists, updating...\n");
-	    }
-	    
-	    /* Update existing repository */
-	    char *fetch_cmd = malloc(strlen("git fetch origin '+refs/heads/*:refs/heads/*' --prune") + 1);
-	    if (!fetch_cmd) {
-	        return CACHE_ERROR_MEMORY;
-	    }
-	    strcpy(fetch_cmd, "git fetch origin '+refs/heads/*:refs/heads/*' --prune");
-	    
-	    int result = run_git_command(fetch_cmd, repo->cache_path);
-	    free(fetch_cmd);
-	    
-	    if (result != 0) {
-	        if (config->verbose) {
-	            printf("Warning: git fetch failed with exit code %d\n", result);
+	if (directory_exists(repo->cache_path)) {
+	    if (is_git_repository_at(repo->cache_path)) {
+	        /* Validate existing repository */
+	        if (validate_git_repository(repo->cache_path, 1)) {
+	            if (config->verbose) {
+	                printf("Valid cache repository found, updating...\n");
+	            }
+	            
+	            /* Update existing repository */
+	            char *fetch_cmd = malloc(strlen("git fetch origin '+refs/heads/*:refs/heads/*' --prune") + 1);
+	            if (!fetch_cmd) {
+	                RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
+	            }
+	            strcpy(fetch_cmd, "git fetch origin '+refs/heads/*:refs/heads/*' --prune");
+	            
+	            int result = run_git_command(fetch_cmd, repo->cache_path);
+	            free(fetch_cmd);
+	            
+	            if (result != 0) {
+	                if (config->verbose) {
+	                    printf("Warning: git fetch failed with exit code %d\n", result);
+	                }
+	                /* Don't fail if fetch fails - the cache might still be usable */
+	                printf("Note: Using existing cache (fetch failed but cache is still valid)\n");
+	            }
+	            
+	            RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_SUCCESS);
+	        } else {
+	            /* Repository exists but is corrupted - back it up and recreate */
+	            if (config->verbose) {
+	                printf("Corrupted cache repository detected, backing up and recreating...\n");
+	            }
+	            
+	            int backup_ret = backup_repository(repo->cache_path, &backup_path, config);
+	            if (backup_ret != CACHE_SUCCESS) {
+	                fprintf(stderr, "error: failed to backup corrupted repository\n");
+	                RETURN_WITH_LOCK_CLEANUP(repo->cache_path, backup_ret);
+	            }
 	        }
-	        /* Don't fail if fetch fails - the cache might still be usable */
-	        printf("Note: Using existing cache (fetch failed but cache is still valid)\n");
+	    } else {
+	        /* Directory exists but is not a git repository - remove it */
+	        if (config->verbose) {
+	            printf("Non-git directory found at cache path, removing...\n");
+	        }
+	        
+	        int remove_ret = safe_remove_directory(repo->cache_path, config);
+	        if (remove_ret != CACHE_SUCCESS) {
+	            fprintf(stderr, "error: failed to remove non-git directory\n");
+	            RETURN_WITH_LOCK_CLEANUP(repo->cache_path, remove_ret);
+	        }
 	    }
-	    
-	    return CACHE_SUCCESS;
 	}
 	
-	/* Create new bare repository */
-	size_t cmd_len = strlen("git clone --bare \"") + strlen(repo->original_url) + 
-	                 strlen("\" \"") + strlen(repo->cache_path) + strlen("\"") + 1;
-	char *clone_cmd = malloc(cmd_len);
-	if (!clone_cmd) {
-	    return CACHE_ERROR_MEMORY;
-	}
-	
-	snprintf(clone_cmd, cmd_len, "git clone --bare \"%s\" \"%s\"", 
-	         repo->original_url, repo->cache_path);
-	
-	if (config->verbose) {
-	    printf("Executing: %s\n", clone_cmd);
-	}
-	
-	/* Get parent directory for working directory */
+	/* Ensure parent directory exists */
 	char *parent_dir = malloc(strlen(repo->cache_path) + 1);
 	if (!parent_dir) {
-	    free(clone_cmd);
-	    return CACHE_ERROR_MEMORY;
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
 	}
 	strcpy(parent_dir, repo->cache_path);
 	char *last_slash = strrchr(parent_dir, '/');
@@ -752,6 +1151,52 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    *last_slash = '\0';
 	} else {
 	    strcpy(parent_dir, ".");
+	}
+	
+	int ensure_ret = ensure_directory_exists(parent_dir);
+	if (ensure_ret != CACHE_SUCCESS) {
+	    free(parent_dir);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, ensure_ret);
+	}
+	
+	/* Create temporary clone path for atomic operation */
+	char *temp_path = malloc(strlen(repo->cache_path) + strlen(".tmp.") + 16);
+	if (!temp_path) {
+	    free(parent_dir);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
+	}
+	
+	time_t now = time(NULL);
+	snprintf(temp_path, strlen(repo->cache_path) + strlen(".tmp.") + 16,
+	         "%s.tmp.%ld", repo->cache_path, (long)now);
+	
+	/* Create new bare repository in temporary location */
+	size_t cmd_len = strlen("git clone --bare \"") + strlen(repo->original_url) + 
+	                 strlen("\" \"") + strlen(temp_path) + strlen("\"") + 1;
+	char *clone_cmd = malloc(cmd_len);
+	if (!clone_cmd) {
+	    free(parent_dir);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
+	}
+	
+	snprintf(clone_cmd, cmd_len, "git clone --bare \"%s\" \"%s\"", 
+	         repo->original_url, temp_path);
+	
+	if (config->verbose) {
+	    printf("Executing: %s\n", clone_cmd);
 	}
 	
 	int result = run_git_command(clone_cmd, parent_dir);
@@ -766,31 +1211,85 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    fprintf(stderr, "  - authentication required (try setting GITHUB_TOKEN)\n");
 	    fprintf(stderr, "  - repository does not exist or is private\n");
 	    
-	    /* Clean up any partial clone directory */
-	    if (directory_exists(repo->cache_path)) {
-	        char *cleanup_cmd = malloc(strlen("rm -rf \"") + strlen(repo->cache_path) + strlen("\"") + 1);
-	        if (cleanup_cmd) {
-	            snprintf(cleanup_cmd, strlen("rm -rf \"") + strlen(repo->cache_path) + strlen("\"") + 1, 
-	                    "rm -rf \"%s\"", repo->cache_path);
-	            if (config->verbose) {
-	                printf("Cleaning up partial clone directory: %s\n", repo->cache_path);
-	            }
-	            int cleanup_result = system(cleanup_cmd);
-	            if (cleanup_result != 0 && config->verbose) {
-	                printf("Warning: cleanup command failed\n");
-	            }
-	            free(cleanup_cmd);
+	    /* Clean up temporary directory */
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    /* Restore backup if we had one */
+	    if (backup_path) {
+	        if (config->verbose) {
+	            printf("Restoring from backup due to clone failure...\n");
 	        }
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
 	    }
 	    
-	    return CACHE_ERROR_GIT;
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_GIT);
+	}
+	
+	/* Validate the newly cloned repository */
+	if (!validate_git_repository(temp_path, 1)) {
+	    fprintf(stderr, "error: cloned repository failed validation\n");
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_GIT);
+	}
+	
+	/* Atomically move temporary repository to final location */
+	char *mv_cmd = malloc(strlen("mv \"") + strlen(temp_path) + strlen("\" \"") + 
+	                     strlen(repo->cache_path) + strlen("\"") + 1);
+	if (!mv_cmd) {
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
+	}
+	
+	snprintf(mv_cmd, strlen("mv \"") + strlen(temp_path) + strlen("\" \"") + 
+	         strlen(repo->cache_path) + strlen("\"") + 1,
+	         "mv \"%s\" \"%s\"", temp_path, repo->cache_path);
+	
+	int mv_result = system(mv_cmd);
+	free(mv_cmd);
+	
+	if (WEXITSTATUS(mv_result) != 0) {
+	    fprintf(stderr, "error: failed to move repository to final location\n");
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_FILESYSTEM);
+	}
+	
+	free(temp_path);
+	
+	/* Clean up backup on success */
+	if (backup_path) {
+	    if (config->verbose) {
+	        printf("Removing backup after successful clone: %s\n", backup_path);
+	    }
+	    safe_remove_directory(backup_path, config);
+	    free(backup_path);
 	}
 	
 	if (config->verbose) {
 	    printf("Cache repository created successfully\n");
 	}
 	
-	return CACHE_SUCCESS;
+	RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_SUCCESS);
 }
 
 /* Handle GitHub repository forking */
@@ -880,62 +1379,145 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	                                enum clone_strategy strategy, const struct cache_options *options,
 	                                const struct cache_config *config, const char *original_url)
 {
-	if (!cache_path || !checkout_path || !options || !config) {
+	if (!cache_path || !checkout_path || !options || !config || !original_url) {
 	    return CACHE_ERROR_ARGS;
 	}
+	
+	/* Validate that cache repository exists and is healthy */
+	if (!validate_git_repository(cache_path, 1)) {
+	    fprintf(stderr, "error: cache repository is invalid or corrupted: %s\n", cache_path);
+	    return CACHE_ERROR_GIT;
+	}
+	
+	/* Acquire lock for checkout repository operations */
+	int lock_ret = acquire_lock(checkout_path, config);
+	if (lock_ret != CACHE_SUCCESS) {
+	    fprintf(stderr, "error: failed to acquire lock for checkout repository\n");
+	    return lock_ret;
+	}
+	
+	char *backup_path = NULL;
 	
 	/* Check if checkout already exists */
 	if (directory_exists(checkout_path)) {
 	    if (is_git_repository_at(checkout_path)) {
-	        if (config->verbose) {
-	            printf("Checkout already exists at: %s, updating...\n", checkout_path);
+	        /* Validate existing repository */
+	        if (validate_git_repository(checkout_path, 0)) {
+	            if (config->verbose) {
+	                printf("Valid checkout found at: %s, updating...\n", checkout_path);
+	            }
+	            
+	            /* Update the existing checkout */
+	            char *pull_cmd = malloc(strlen("git pull --ff-only") + 1);
+	            if (!pull_cmd) {
+	                RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	            }
+	            strcpy(pull_cmd, "git pull --ff-only");
+	            
+	            int result = run_git_command(pull_cmd, checkout_path);
+	            free(pull_cmd);
+	            
+	            if (result != 0) {
+	                if (config->verbose) {
+	                    printf("Warning: Pull failed with exit code %d, but checkout is still valid\n", result);
+	                }
+	            }
+	            RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_SUCCESS);
+	        } else {
+	            /* Repository exists but is corrupted - back it up and recreate */
+	            if (config->verbose) {
+	                printf("Corrupted checkout detected, backing up and recreating...\n");
+	            }
+	            
+	            int backup_ret = backup_repository(checkout_path, &backup_path, config);
+	            if (backup_ret != CACHE_SUCCESS) {
+	                fprintf(stderr, "error: failed to backup corrupted checkout\n");
+	                RETURN_WITH_LOCK_CLEANUP(checkout_path, backup_ret);
+	            }
 	        }
-	        /* Update the existing checkout */
-	        char *pull_cmd = malloc(strlen("git pull --ff-only") + 1);
-	        if (!pull_cmd) {
-	            return CACHE_ERROR_MEMORY;
-	        }
-	        strcpy(pull_cmd, "git pull --ff-only");
-	        
-	        int result = run_git_command(pull_cmd, checkout_path);
-	        free(pull_cmd);
-	        
-	        if (result != 0 && config->verbose) {
-	            printf("Note: Pull failed, but checkout is still valid\n");
-	        }
-	        return CACHE_SUCCESS;
 	    } else {
-	        /* Directory exists but is not a git repo - remove it */
+	        /* Directory exists but is not a git repository - remove it */
 	        if (config->verbose) {
-	            printf("Removing invalid checkout directory: %s\n", checkout_path);
+	            printf("Non-git directory found at checkout path, removing...\n");
 	        }
-	        char *rm_cmd = malloc(strlen("rm -rf \"") + strlen(checkout_path) + strlen("\"") + 1);
-	        if (!rm_cmd) {
-	            return CACHE_ERROR_MEMORY;
-	        }
-	        snprintf(rm_cmd, strlen("rm -rf \"") + strlen(checkout_path) + strlen("\"") + 1,
-	                 "rm -rf \"%s\"", checkout_path);
-	        int result = system(rm_cmd);
-	        free(rm_cmd);
-	        if (WEXITSTATUS(result) != 0) {
-	            return CACHE_ERROR_FILESYSTEM;
+	        
+	        int remove_ret = safe_remove_directory(checkout_path, config);
+	        if (remove_ret != CACHE_SUCCESS) {
+	            fprintf(stderr, "error: failed to remove non-git directory\n");
+	            RETURN_WITH_LOCK_CLEANUP(checkout_path, remove_ret);
 	        }
 	    }
 	}
+	
+	/* Ensure parent directory exists */
+	char *parent_dir = malloc(strlen(checkout_path) + 1);
+	if (!parent_dir) {
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	}
+	strcpy(parent_dir, checkout_path);
+	char *last_slash = strrchr(parent_dir, '/');
+	if (last_slash) {
+	    *last_slash = '\0';
+	} else {
+	    strcpy(parent_dir, ".");
+	}
+	
+	/* Clean up any orphaned temporary files from previous interrupted operations */
+	if (directory_exists(parent_dir)) {
+	    char *cleanup_pattern = malloc(strlen(checkout_path) + strlen(".tmp.*") + 1);
+	    if (cleanup_pattern) {
+	        snprintf(cleanup_pattern, strlen(checkout_path) + strlen(".tmp.*") + 1,
+	                 "%s.tmp.*", checkout_path);
+	        
+	        if (config->verbose) {
+	            printf("Cleaning up any orphaned temporary files: %s\n", cleanup_pattern);
+	        }
+	        
+	        char *cleanup_cmd = malloc(strlen("rm -rf ") + strlen(cleanup_pattern) + 1);
+	        if (cleanup_cmd) {
+	            snprintf(cleanup_cmd, strlen("rm -rf ") + strlen(cleanup_pattern) + 1,
+	                     "rm -rf %s", cleanup_pattern);
+	            system(cleanup_cmd);
+	            free(cleanup_cmd);
+	        }
+	        free(cleanup_pattern);
+	    }
+	}
+	
+	int ensure_ret = ensure_directory_exists(parent_dir);
+	if (ensure_ret != CACHE_SUCCESS) {
+	    free(parent_dir);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, ensure_ret);
+	}
+	
+	/* Create temporary checkout path for atomic operation */
+	char *temp_path = malloc(strlen(checkout_path) + strlen(".tmp.") + 16);
+	if (!temp_path) {
+	    free(parent_dir);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	}
+	
+	time_t now = time(NULL);
+	snprintf(temp_path, strlen(checkout_path) + strlen(".tmp.") + 16,
+	         "%s.tmp.%ld", checkout_path, (long)now);
 	
 	if (config->verbose) {
 	    printf("Creating reference checkout at: %s\n", checkout_path);
 	}
 	
-	/* Build clone command with reference and strategy */
-	size_t cmd_len = strlen("git clone --reference \"") + strlen(cache_path) + 
-	                 strlen("\" ") + 100 + strlen(cache_path) + strlen(" \"") + 
-	                 strlen(checkout_path) + strlen("\"") + 1;
-	char *clone_cmd = malloc(cmd_len);
-	if (!clone_cmd) {
-	    return CACHE_ERROR_MEMORY;
-	}
-	
+	/* Build strategy arguments */
 	char strategy_args[256] = "";
 	switch (strategy) {
 	    case CLONE_STRATEGY_SHALLOW:
@@ -953,26 +1535,133 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	        break;
 	}
 	
+	/* Build clone command with precise length calculation */
+	size_t cmd_len = strlen("git clone --reference \"") + strlen(cache_path) + 
+	                 strlen("\" ") + strlen(strategy_args) + strlen(" \"") + 
+	                 strlen(original_url) + strlen("\" \"") + strlen(temp_path) + strlen("\"") + 1;
+	char *clone_cmd = malloc(cmd_len);
+	if (!clone_cmd) {
+	    free(parent_dir);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	}
+	
 	snprintf(clone_cmd, cmd_len, "git clone --reference \"%s\" %s \"%s\" \"%s\"",
-	         cache_path, strategy_args, original_url, checkout_path);
+	         cache_path, strategy_args, original_url, temp_path);
 	
 	if (config->verbose) {
 	    printf("Executing: %s\n", clone_cmd);
 	}
 	
-	int result = system(clone_cmd);
+	int result = run_git_command(clone_cmd, parent_dir);
 	free(clone_cmd);
+	free(parent_dir);
 	
-	if (WEXITSTATUS(result) != 0) {
-	    fprintf(stderr, "error: reference checkout failed with exit code %d\n", WEXITSTATUS(result));
-	    return CACHE_ERROR_GIT;
+	if (result != 0) {
+	    fprintf(stderr, "error: reference checkout failed with exit code %d\n", result);
+	    fprintf(stderr, "This could be due to:\n");
+	    fprintf(stderr, "  - Cache repository corruption\n");
+	    fprintf(stderr, "  - Network connectivity issues for strategy filters\n");
+	    fprintf(stderr, "  - Filesystem permissions\n");
+	    fprintf(stderr, "  - Invalid original URL '%s'\n", original_url);
+	    
+	    /* Clean up temporary directory */
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    /* Restore backup if we had one */
+	    if (backup_path) {
+	        if (config->verbose) {
+	            printf("Restoring from backup due to checkout failure...\n");
+	        }
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_GIT);
+	}
+	
+	/* Validate the newly created checkout - check both working tree and .git directory */
+	char *git_subdir = malloc(strlen(temp_path) + strlen("/.git") + 1);
+	if (!git_subdir) {
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	}
+	snprintf(git_subdir, strlen(temp_path) + strlen("/.git") + 1, "%s/.git", temp_path);
+	
+	if (!directory_exists(git_subdir) && !validate_git_repository(temp_path, 0)) {
+	    fprintf(stderr, "error: created checkout failed validation\n");
+	    free(git_subdir);
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_GIT);
+	}
+	free(git_subdir);
+	
+	/* Atomically move temporary checkout to final location */
+	char *mv_cmd = malloc(strlen("mv \"") + strlen(temp_path) + strlen("\" \"") + 
+	                     strlen(checkout_path) + strlen("\"") + 1);
+	if (!mv_cmd) {
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_MEMORY);
+	}
+	
+	snprintf(mv_cmd, strlen("mv \"") + strlen(temp_path) + strlen("\" \"") + 
+	         strlen(checkout_path) + strlen("\"") + 1,
+	         "mv \"%s\" \"%s\"", temp_path, checkout_path);
+	
+	int mv_result = system(mv_cmd);
+	free(mv_cmd);
+	
+	if (WEXITSTATUS(mv_result) != 0) {
+	    fprintf(stderr, "error: failed to move checkout to final location\n");
+	    safe_remove_directory(temp_path, config);
+	    free(temp_path);
+	    
+	    if (backup_path) {
+	        restore_from_backup(backup_path, checkout_path, config);
+	        free(backup_path);
+	    }
+	    
+	    RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_ERROR_FILESYSTEM);
+	}
+	
+	free(temp_path);
+	
+	/* Clean up backup on success */
+	if (backup_path) {
+	    if (config->verbose) {
+	        printf("Removing backup after successful checkout: %s\n", backup_path);
+	    }
+	    safe_remove_directory(backup_path, config);
+	    free(backup_path);
 	}
 	
 	if (config->verbose) {
 	    printf("Reference checkout created successfully\n");
 	}
 	
-	return CACHE_SUCCESS;
+	RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_SUCCESS);
 }
 
 /* Scan cache directory and show repository information */
