@@ -5,6 +5,7 @@
 git-mycommand
 git-cache
 github_test
+test_url_parsing
 *.exe
 *.out
 *.app
