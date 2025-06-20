@@ -1,0 +1,103 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git libcurl4-openssl-dev libjson-c-dev
+        
+    - name: Build binaries
+      run: |
+        make clean
+        make all
+        make url-test
+        make github
+        
+    - name: Run URL parsing tests
+      run: make url-test-run
+      
+    - name: Run GitHub API tests
+      run: make github-test
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Run git-cache integration tests
+      run: make cache-test
+      
+    - name: Run all tests
+      run: make test-all
+      
+  test-matrix:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
+        include:
+          - os: ubuntu-20.04
+            cc: gcc-9
+          - os: ubuntu-22.04
+            cc: gcc-11
+            
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git libcurl4-openssl-dev libjson-c-dev ${{ matrix.cc }}
+        
+    - name: Build and test
+      env:
+        CC: ${{ matrix.cc }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        make clean
+        make all
+        make url-test
+        make github
+        make test-all
+        
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git libcurl4-openssl-dev libjson-c-dev cppcheck
+        
+    - name: Build with warnings
+      run: |
+        make clean
+        make CFLAGS="-Wall -Wextra -Werror -std=c99 -pedantic -O2" all
+        
+    - name: Run static analysis
+      run: |
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem *.c
+        
+    - name: Check for memory leaks
+      run: |
+        sudo apt-get install -y valgrind
+        make clean debug
+        # Run a simple test under valgrind
+        valgrind --leak-check=full --error-exitcode=1 ./git-cache --version || true

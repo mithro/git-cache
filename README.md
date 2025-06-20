@@ -1,5 +1,8 @@
 # git-mycommand
 
+[![CI](https://github.com/mithro/git-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/ci.yml)
+[![Test Suite](https://github.com/mithro/git-cache/actions/workflows/test.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/test.yml)
+
 A template for creating custom git subcommands in C.
 
 ## Description
