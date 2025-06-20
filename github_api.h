@@ -42,10 +42,6 @@ struct github_client* github_client_create(const char *token);
 void github_client_destroy(struct github_client *client);
 int github_client_set_timeout(struct github_client *client, int timeout_seconds);
 
-/* HTTP response management */
-struct github_response* github_response_create(void);
-void github_response_destroy(struct github_response *response);
-
 /* Repository operations */
 int github_get_repo(struct github_client *client, const char *owner, const char *repo, 
 	               struct github_repo **result);
@@ -55,7 +51,6 @@ int github_set_repo_private(struct github_client *client, const char *owner, con
 	                       int is_private);
 
 /* Repository structure management */
-struct github_repo* github_repo_create(void);
 void github_repo_destroy(struct github_repo *repo);
 
 /* Utility functions */

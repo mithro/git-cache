@@ -46,7 +46,7 @@ void print_usage(const char *program_name)
 }
 
 /* Print version information */
-void print_version(void)
+static void print_version(void)
 {
 	printf("%s version %s\n", PROGRAM_NAME, VERSION);
 	printf("Git repository caching and mirroring tool\n");
@@ -73,7 +73,7 @@ static enum clone_strategy parse_strategy(const char *strategy_str)
 }
 
 /* Parse command line arguments */
-int parse_arguments(int argc, char *argv[], struct cache_options *options)
+static int parse_arguments(int argc, char *argv[], struct cache_options *options)
 {
 	if (!options) {
 	    return CACHE_ERROR_ARGS;
@@ -189,7 +189,7 @@ int parse_arguments(int argc, char *argv[], struct cache_options *options)
 }
 
 /* Get error string for error code */
-const char* cache_get_error_string(int error_code)
+static const char* cache_get_error_string(int error_code)
 {
 	switch (error_code) {
 	    case CACHE_SUCCESS:
@@ -222,16 +222,16 @@ static int is_git_repository(void)
 /* Utility functions */
 
 /* Get current working directory */
-char* get_current_directory(void)
+static char* get_current_directory(void)
 {
 	char *cwd = getcwd(NULL, 0);
 	return cwd; /* getcwd allocates memory for us */
 }
 
 /* Get home directory */
-char* get_home_directory(void)
+static char* get_home_directory(void)
 {
-	char *home = getenv("HOME");
+	const char *home = getenv("HOME");
 	if (!home) {
 	    return NULL;
 	}
@@ -244,7 +244,7 @@ char* get_home_directory(void)
 }
 
 /* Resolve path with environment variable expansion */
-char* resolve_path(const char *path)
+static char* resolve_path(const char *path)
 {
 	if (!path) {
 	    return NULL;
@@ -287,7 +287,7 @@ static int directory_exists(const char *path)
 }
 
 /* Ensure directory exists, creating if necessary */
-int ensure_directory_exists(const char *path)
+static int ensure_directory_exists(const char *path)
 {
 	if (!path) {
 	    return CACHE_ERROR_ARGS;
@@ -304,7 +304,7 @@ int ensure_directory_exists(const char *path)
 	}
 	strcpy(path_copy, path);
 	
-	char *dir = dirname(path_copy);
+	const char *dir = dirname(path_copy);
 	if (strcmp(dir, "/") != 0 && strcmp(dir, ".") != 0) {
 	    int ret = ensure_directory_exists(dir);
 	    if (ret != CACHE_SUCCESS) {
@@ -322,21 +322,10 @@ int ensure_directory_exists(const char *path)
 	return CACHE_SUCCESS;
 }
 
-/* Check if directory is empty */
-int is_directory_empty(const char *path)
-{
-	if (!directory_exists(path)) {
-	    return 1; /* Non-existent directory is considered empty */
-	}
-	
-	/* TODO: Implement directory content checking */
-	return 0;
-}
-
 /* Configuration management */
 
 /* Create cache configuration with defaults */
-struct cache_config* cache_config_create(void)
+static struct cache_config* cache_config_create(void)
 {
 	struct cache_config *config = malloc(sizeof(struct cache_config));
 	if (!config) {
@@ -346,7 +335,7 @@ struct cache_config* cache_config_create(void)
 	memset(config, 0, sizeof(struct cache_config));
 	
 	/* Set cache root from GIT_CACHE environment variable or default to ~/.cache/git */
-	char *git_cache = getenv("GIT_CACHE");
+	const char *git_cache = getenv("GIT_CACHE");
 	if (git_cache) {
 	    config->cache_root = resolve_path(git_cache);
 	} else {
@@ -393,7 +382,7 @@ struct cache_config* cache_config_create(void)
 	config->recursive_submodules = 1;
 	
 	/* Get GitHub token from environment */
-	char *token = getenv("GITHUB_TOKEN");
+	const char *token = getenv("GITHUB_TOKEN");
 	if (token) {
 	    config->github_token = malloc(strlen(token) + 1);
 	    if (config->github_token) {
@@ -405,7 +394,7 @@ struct cache_config* cache_config_create(void)
 }
 
 /* Destroy cache configuration */
-void cache_config_destroy(struct cache_config *config)
+static void cache_config_destroy(struct cache_config *config)
 {
 	if (!config) {
 	    return;
@@ -418,7 +407,7 @@ void cache_config_destroy(struct cache_config *config)
 }
 
 /* Load configuration from environment and config files */
-int cache_config_load(struct cache_config *config)
+static int cache_config_load(struct cache_config *config)
 {
 	if (!config) {
 	    return CACHE_ERROR_ARGS;
@@ -426,7 +415,7 @@ int cache_config_load(struct cache_config *config)
 	
 	/* Override with environment variables if set */
 	/* GIT_CACHE takes precedence over GIT_CACHE_ROOT for backward compatibility */
-	char *env_cache_root = getenv("GIT_CACHE");
+	const char *env_cache_root = getenv("GIT_CACHE");
 	if (!env_cache_root) {
 	    env_cache_root = getenv("GIT_CACHE_ROOT");
 	}
@@ -438,7 +427,7 @@ int cache_config_load(struct cache_config *config)
 	    }
 	}
 	
-	char *env_checkout_root = getenv("GIT_CHECKOUT_ROOT");
+	const char *env_checkout_root = getenv("GIT_CHECKOUT_ROOT");
 	if (env_checkout_root) {
 	    free(config->checkout_root);
 	    config->checkout_root = resolve_path(env_checkout_root);
@@ -447,7 +436,7 @@ int cache_config_load(struct cache_config *config)
 	    }
 	}
 	
-	char *env_token = getenv("GITHUB_TOKEN");
+	const char *env_token = getenv("GITHUB_TOKEN");
 	if (env_token) {
 	    free(config->github_token);
 	    config->github_token = malloc(strlen(env_token) + 1);
@@ -461,7 +450,7 @@ int cache_config_load(struct cache_config *config)
 }
 
 /* Validate cache configuration */
-int cache_config_validate(const struct cache_config *config)
+static int cache_config_validate(const struct cache_config *config)
 {
 	if (!config) {
 	    return CACHE_ERROR_ARGS;
@@ -496,7 +485,7 @@ int cache_config_validate(const struct cache_config *config)
 /* Repository information management */
 
 /* Create repository information structure */
-struct repo_info* repo_info_create(void)
+static struct repo_info* repo_info_create(void)
 {
 	struct repo_info *repo = malloc(sizeof(struct repo_info));
 	if (!repo) {
@@ -512,7 +501,7 @@ struct repo_info* repo_info_create(void)
 }
 
 /* Destroy repository information structure */
-void repo_info_destroy(struct repo_info *repo)
+static void repo_info_destroy(struct repo_info *repo)
 {
 	if (!repo) {
 	    return;
@@ -529,7 +518,7 @@ void repo_info_destroy(struct repo_info *repo)
 }
 
 /* Parse repository URL and extract information */
-int repo_info_parse_url(const char *url, struct repo_info *repo)
+static int repo_info_parse_url(const char *url, struct repo_info *repo)
 {
 	if (!url || !repo) {
 	    return CACHE_ERROR_ARGS;
@@ -561,7 +550,7 @@ int repo_info_parse_url(const char *url, struct repo_info *repo)
 }
 
 /* Setup paths for repository based on configuration */
-int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *config)
+static int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
 	    return CACHE_ERROR_ARGS;
@@ -699,7 +688,7 @@ static int is_git_repository_at(const char *path)
 }
 
 /* Create full bare repository in cache location */
-static int create_cache_repository(struct repo_info *repo, const struct cache_config *config)
+static int create_cache_repository(const struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
 	    return CACHE_ERROR_ARGS;
@@ -805,7 +794,7 @@ static int create_cache_repository(struct repo_info *repo, const struct cache_co
 }
 
 /* Handle GitHub repository forking */
-static int handle_github_fork(struct repo_info *repo, const struct cache_config *config, 
+static int handle_github_fork(const struct repo_info *repo, const struct cache_config *config, 
 	                         const struct cache_options *options)
 {
 	if (!repo || !config || !options) {
@@ -862,7 +851,7 @@ static int handle_github_fork(struct repo_info *repo, const struct cache_config 
 }
 
 /* Create reference-based checkouts */
-static int create_reference_checkouts(struct repo_info *repo, const struct cache_config *config,
+static int create_reference_checkouts(const struct repo_info *repo, const struct cache_config *config,
 	                                 const struct cache_options *options)
 {
 	if (!repo || !config || !options) {
@@ -1000,7 +989,7 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	    return CACHE_ERROR_FILESYSTEM;
 	}
 	
-	struct dirent *entry;
+	const struct dirent *entry;
 	int repo_count = 0;
 	
 	while ((entry = readdir(dir)) != NULL) {
@@ -1016,7 +1005,7 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	        
 	        DIR *user_dir_handle = opendir(user_dir);
 	        if (user_dir_handle) {
-	            struct dirent *repo_entry;
+	            const struct dirent *repo_entry;
 	            while ((repo_entry = readdir(user_dir_handle)) != NULL) {
 	                if (repo_entry->d_type == DT_DIR && strcmp(repo_entry->d_name, ".") != 0 && 
 	                    strcmp(repo_entry->d_name, "..") != 0) {
@@ -1089,7 +1078,7 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 }
 
 /* Cache operations implementation */
-int cache_clone_repository(const char *url, const struct cache_options *options)
+static int cache_clone_repository(const char *url, const struct cache_options *options)
 {
 	if (!url || !options) {
 	    return CACHE_ERROR_ARGS;
@@ -1255,7 +1244,7 @@ int cache_clone_repository(const char *url, const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
-int cache_status(const struct cache_options *options)
+static int cache_status(const struct cache_options *options)
 {
 	/* Create and load configuration */
 	struct cache_config *config = cache_config_create();
@@ -1321,7 +1310,7 @@ int cache_status(const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
-int cache_clean(const struct cache_options *options)
+static int cache_clean(const struct cache_options *options)
 {
 	/* Create and load configuration */
 	struct cache_config *config = cache_config_create();
@@ -1406,7 +1395,7 @@ int cache_clean(const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
-int cache_sync(const struct cache_options *options)
+static int cache_sync(const struct cache_options *options)
 {
 	printf("Cache sync:\n");
 	if (options->verbose) {
@@ -1418,7 +1407,7 @@ int cache_sync(const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
-int cache_list(const struct cache_options *options)
+static int cache_list(const struct cache_options *options)
 {
 	/* Create and load configuration */
 	struct cache_config *config = cache_config_create();

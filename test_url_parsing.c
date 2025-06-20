@@ -74,7 +74,7 @@ int main(void)
 	printf("=============================\n\n");
 	
 	for (int i = 0; url_tests[i].url != NULL; i++) {
-		struct url_test *test = &url_tests[i];
+		const struct url_test *test = &url_tests[i];
 		char *owner = NULL;
 		char *repo = NULL;
 		

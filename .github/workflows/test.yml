@@ -93,7 +93,7 @@ jobs:
         
     - name: Run static analysis
       run: |
-        cppcheck --enable=warning --error-exitcode=1 --suppress=missingIncludeSystem *.c
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem *.c
         
     - name: Check for memory leaks
       run: |

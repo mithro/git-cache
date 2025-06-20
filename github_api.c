@@ -84,7 +84,7 @@ int github_client_set_timeout(struct github_client *client, int timeout_seconds)
 }
 
 /* Create GitHub response structure */
-struct github_response* github_response_create(void)
+static struct github_response* github_response_create(void)
 {
 	struct github_response *response = malloc(sizeof(struct github_response));
 	if (!response) {
@@ -106,7 +106,7 @@ struct github_response* github_response_create(void)
 }
 
 /* Destroy GitHub response structure */
-void github_response_destroy(struct github_response *response)
+static void github_response_destroy(struct github_response *response)
 {
 	if (!response) {
 	    return;
@@ -118,7 +118,7 @@ void github_response_destroy(struct github_response *response)
 }
 
 /* Create GitHub repository structure */
-struct github_repo* github_repo_create(void)
+static struct github_repo* github_repo_create(void)
 {
 	struct github_repo *repo = malloc(sizeof(struct github_repo));
 	if (!repo) {
@@ -638,12 +638,14 @@ parse_owner_repo:
 	    repo_end--;
 	}
 	
-	size_t repo_len = repo_end - repo_start;
-	if (repo_len == 0) {
+	/* Check if repo name is empty after all processing */
+	if (repo_end <= repo_start) {
 	    free(*owner);
 	    *owner = NULL;
 	    return GITHUB_ERROR_INVALID;
 	}
+	
+	size_t repo_len = repo_end - repo_start;
 	
 	*repo = malloc(repo_len + 1);
 	if (!*repo) {

@@ -77,36 +77,8 @@ struct cache_options {
 
 /* Function prototypes */
 
-/* Argument parsing */
-int parse_arguments(int argc, char *argv[], struct cache_options *options);
+/* Public interface - only keep functions that need to be called externally */
 void print_usage(const char *program_name);
-void print_version(void);
-
-/* Configuration management */
-struct cache_config* cache_config_create(void);
-void cache_config_destroy(struct cache_config *config);
-int cache_config_load(struct cache_config *config);
-int cache_config_validate(const struct cache_config *config);
-
-/* Repository management */
-struct repo_info* repo_info_create(void);
-void repo_info_destroy(struct repo_info *repo);
-int repo_info_parse_url(const char *url, struct repo_info *repo);
-int repo_info_setup_paths(struct repo_info *repo, const struct cache_config *config);
-
-/* Cache operations */
-int cache_clone_repository(const char *url, const struct cache_options *options);
-int cache_status(const struct cache_options *options);
-int cache_clean(const struct cache_options *options);
-int cache_sync(const struct cache_options *options);
-int cache_list(const struct cache_options *options);
-
-/* Utility functions */
-int ensure_directory_exists(const char *path);
-int is_directory_empty(const char *path);
-char* resolve_path(const char *path);
-char* get_current_directory(void);
-char* get_home_directory(void);
 
 /* Error codes */
 #define CACHE_SUCCESS          0
@@ -118,6 +90,5 @@ char* get_home_directory(void);
 #define CACHE_ERROR_GITHUB     -6
 #define CACHE_ERROR_MEMORY     -7
 
-const char* cache_get_error_string(int error_code);
 
 #endif /* GIT_CACHE_H */
