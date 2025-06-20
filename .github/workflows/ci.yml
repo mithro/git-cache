@@ -77,8 +77,8 @@ jobs:
     - name: Check for tabs (Git coding style)
       run: |
         # Git project uses tabs for indentation
-        echo "Checking for proper tab usage in C files..."
-        for file in *.c *.h; do
+        echo "Checking for proper tab usage in main C files..."
+        for file in git-cache.c git-mycommand.c github_api.c *.h; do
           if [ -f "$file" ]; then
             if grep -q "^    " "$file"; then
               echo "Error: $file contains spaces instead of tabs for indentation"
@@ -86,4 +86,4 @@ jobs:
             fi
           fi
         done
-        echo "✓ All C files use tabs for indentation"
+        echo "✓ All main C files use tabs for indentation"

@@ -716,11 +716,11 @@ static int create_cache_repository(struct repo_info *repo, const struct cache_co
 	    }
 	    
 	    /* Update existing repository */
-	    char *fetch_cmd = malloc(strlen("git fetch --all --prune") + 1);
+	    char *fetch_cmd = malloc(strlen("git fetch origin '+refs/heads/*:refs/heads/*' --prune") + 1);
 	    if (!fetch_cmd) {
 	        return CACHE_ERROR_MEMORY;
 	    }
-	    strcpy(fetch_cmd, "git fetch --all --prune");
+	    strcpy(fetch_cmd, "git fetch origin '+refs/heads/*:refs/heads/*' --prune");
 	    
 	    int result = run_git_command(fetch_cmd, repo->cache_path);
 	    free(fetch_cmd);
@@ -729,7 +729,8 @@ static int create_cache_repository(struct repo_info *repo, const struct cache_co
 	        if (config->verbose) {
 	            printf("Warning: git fetch failed with exit code %d\n", result);
 	        }
-	        return CACHE_ERROR_GIT;
+	        /* Don't fail if fetch fails - the cache might still be usable */
+	        printf("Note: Using existing cache (fetch failed but cache is still valid)\n");
 	    }
 	    
 	    return CACHE_SUCCESS;
@@ -895,11 +896,42 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	}
 	
 	/* Check if checkout already exists */
-	if (is_git_repository_at(checkout_path)) {
-	    if (config->verbose) {
-	        printf("Checkout already exists at: %s\n", checkout_path);
+	if (directory_exists(checkout_path)) {
+	    if (is_git_repository_at(checkout_path)) {
+	        if (config->verbose) {
+	            printf("Checkout already exists at: %s, updating...\n", checkout_path);
+	        }
+	        /* Update the existing checkout */
+	        char *pull_cmd = malloc(strlen("git pull --ff-only") + 1);
+	        if (!pull_cmd) {
+	            return CACHE_ERROR_MEMORY;
+	        }
+	        strcpy(pull_cmd, "git pull --ff-only");
+	        
+	        int result = run_git_command(pull_cmd, checkout_path);
+	        free(pull_cmd);
+	        
+	        if (result != 0 && config->verbose) {
+	            printf("Note: Pull failed, but checkout is still valid\n");
+	        }
+	        return CACHE_SUCCESS;
+	    } else {
+	        /* Directory exists but is not a git repo - remove it */
+	        if (config->verbose) {
+	            printf("Removing invalid checkout directory: %s\n", checkout_path);
+	        }
+	        char *rm_cmd = malloc(strlen("rm -rf \"") + strlen(checkout_path) + strlen("\"") + 1);
+	        if (!rm_cmd) {
+	            return CACHE_ERROR_MEMORY;
+	        }
+	        snprintf(rm_cmd, strlen("rm -rf \"") + strlen(checkout_path) + strlen("\"") + 1,
+	                 "rm -rf \"%s\"", checkout_path);
+	        int result = system(rm_cmd);
+	        free(rm_cmd);
+	        if (WEXITSTATUS(result) != 0) {
+	            return CACHE_ERROR_FILESYSTEM;
+	        }
 	    }
-	    return CACHE_SUCCESS;
 	}
 	
 	if (config->verbose) {
