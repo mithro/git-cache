@@ -68,7 +68,6 @@ jobs:
     - name: Check file permissions
       run: |
         # Ensure scripts are executable
-        test -x tests/run_tests.sh
         test -x tests/run_cache_tests.sh
         test -x tests/run_github_tests.sh
         test -x tests/run_url_tests.sh
