@@ -13,7 +13,7 @@ HEADERS = git-cache.h github_api.h
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-.PHONY: all clean install uninstall github-test cache-test url-test-run test-all clean-cache clean-all help
+.PHONY: all clean install uninstall github-test cache-test url-test-run robustness-test concurrent-test test-all clean-cache clean-all help
 
 all: $(CACHE_TARGET)
 
@@ -57,10 +57,12 @@ help:
 	@echo "  url-test     Build URL parsing test program"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  github-test  Run GitHub API tests"
-	@echo "  cache-test   Run git-cache integration tests"
-	@echo "  url-test-run Run URL parsing tests"
-	@echo "  test-all     Run all test suites"
+	@echo "  github-test     Run GitHub API tests"
+	@echo "  cache-test      Run git-cache integration tests"
+	@echo "  url-test-run    Run URL parsing tests"
+	@echo "  robustness-test Run robustness and failure recovery tests"
+	@echo "  concurrent-test Run concurrent execution tests"
+	@echo "  test-all        Run all test suites"
 	@echo ""
 	@echo "Cleanup targets:"
 	@echo "  clean        Remove compiled objects and binaries"
@@ -97,6 +99,12 @@ cache-test: $(CACHE_TARGET)
 
 url-test-run: $(URL_TEST_TARGET)
 	./tests/run_url_tests.sh
+
+robustness-test: $(CACHE_TARGET)
+	./tests/run_robustness_tests.sh
+
+concurrent-test: $(CACHE_TARGET)
+	./test_concurrent.sh
 
 test-all: $(CACHE_TARGET) $(URL_TEST_TARGET)
 	./tests/run_all_tests.sh
