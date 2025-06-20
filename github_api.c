@@ -529,6 +529,8 @@ int github_parse_repo_url(const char *url, char **owner, char **repo)
 	 * https://github.com/owner/repo
 	 * https://github.com/owner/repo.git
 	 * git@github.com:owner/repo.git
+	 * git+ssh://github.com/owner/repo.git
+	 * ssh://github.com/owner/repo.git
 	 * github.com/owner/repo
 	 */
 	
@@ -539,6 +541,14 @@ int github_parse_repo_url(const char *url, char **owner, char **repo)
 	    start = url + 8;
 	} else if (strncmp(url, "http://", 7) == 0) {
 	    start = url + 7;
+	} else if (strncmp(url, "git+ssh://", 10) == 0) {
+	    start = url + 10;
+	} else if (strncmp(url, "ssh://", 6) == 0) {
+	    start = url + 6;
+	    /* Handle ssh://git@github.com/... format */
+	    if (strncmp(start, "git@", 4) == 0) {
+	        start += 4;
+	    }
 	} else if (strncmp(url, "git@", 4) == 0) {
 	    /* For SSH URLs like git@github.com:owner/repo.git */
 	    start = strchr(url, ':');
