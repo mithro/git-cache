@@ -528,10 +528,17 @@ int github_parse_repo_url(const char *url, char **owner, char **repo)
 	/* Handle different URL formats:
 	 * https://github.com/owner/repo
 	 * https://github.com/owner/repo.git
+	 * http://github.com/owner/repo.git
+	 * git://github.com/owner/repo.git
+	 * git+https://github.com/owner/repo.git
 	 * git@github.com:owner/repo.git
 	 * git+ssh://github.com/owner/repo.git
 	 * ssh://github.com/owner/repo.git
+	 * ssh://git@github.com/owner/repo.git
+	 * ssh://[user@]github.com[:port]/owner/repo.git
+	 * file:///path/to/repo.git (not supported for GitHub)
 	 * github.com/owner/repo
+	 * github.com:owner/repo (alternative bare format)
 	 */
 	
 	const char *start = url;
@@ -541,13 +548,27 @@ int github_parse_repo_url(const char *url, char **owner, char **repo)
 	    start = url + 8;
 	} else if (strncmp(url, "http://", 7) == 0) {
 	    start = url + 7;
+	} else if (strncmp(url, "git://", 6) == 0) {
+	    start = url + 6;
+	} else if (strncmp(url, "git+https://", 12) == 0) {
+	    start = url + 12;
+	} else if (strncmp(url, "git+http://", 11) == 0) {
+	    start = url + 11;
 	} else if (strncmp(url, "git+ssh://", 10) == 0) {
 	    start = url + 10;
+	    /* Handle git+ssh://git@github.com/... format */
+	    const char *at_sign = strchr(start, '@');
+	    const char *slash = strchr(start, '/');
+	    if (at_sign && slash && at_sign < slash) {
+	        start = at_sign + 1;
+	    }
 	} else if (strncmp(url, "ssh://", 6) == 0) {
 	    start = url + 6;
-	    /* Handle ssh://git@github.com/... format */
-	    if (strncmp(start, "git@", 4) == 0) {
-	        start += 4;
+	    /* Handle ssh://[user@]host... format */
+	    const char *at_sign = strchr(start, '@');
+	    const char *slash = strchr(start, '/');
+	    if (at_sign && slash && at_sign < slash) {
+	        start = at_sign + 1;
 	    }
 	} else if (strncmp(url, "git@", 4) == 0) {
 	    /* For SSH URLs like git@github.com:owner/repo.git */
@@ -558,6 +579,9 @@ int github_parse_repo_url(const char *url, char **owner, char **repo)
 	    start++; /* Skip the ':' */
 	    /* For SSH, we now have "owner/repo.git", so skip the github.com check */
 	    goto parse_owner_repo;
+	} else if (strncmp(url, "file://", 7) == 0) {
+	    /* file:// URLs are not supported for GitHub */
+	    return GITHUB_ERROR_INVALID;
 	}
 	
 	/* Find github.com */
@@ -599,9 +623,19 @@ parse_owner_repo:
 	const char *repo_start = slash + 1;
 	const char *repo_end = repo_start + strlen(repo_start);
 	
+	/* Remove trailing slashes */
+	while (repo_end > repo_start && *(repo_end - 1) == '/') {
+	    repo_end--;
+	}
+	
 	/* Remove .git suffix if present */
-	if (repo_end > repo_start + 4 && strcmp(repo_end - 4, ".git") == 0) {
+	if (repo_end > repo_start + 4 && strncmp(repo_end - 4, ".git", 4) == 0) {
 	    repo_end -= 4;
+	}
+	
+	/* Remove trailing slashes again (in case of .git/) */
+	while (repo_end > repo_start && *(repo_end - 1) == '/') {
+	    repo_end--;
 	}
 	
 	size_t repo_len = repo_end - repo_start;

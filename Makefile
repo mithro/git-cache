@@ -4,6 +4,7 @@ LDFLAGS = -lcurl -ljson-c
 TARGET = git-mycommand
 CACHE_TARGET = git-cache
 GITHUB_TARGET = github_test
+URL_TEST_TARGET = test_url_parsing
 SOURCES = git-mycommand.c
 CACHE_SOURCES = git-cache.c github_api.c
 GITHUB_SOURCES = github_api.c
@@ -15,13 +16,15 @@ HEADERS = git-mycommand.h git-cache.h github_api.h
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-.PHONY: all clean install uninstall test github-test cache-test clean-cache clean-all help
+.PHONY: all clean install uninstall test github-test cache-test url-test-run test-all clean-cache clean-all help
 
 all: $(TARGET) $(CACHE_TARGET)
 
 cache: $(CACHE_TARGET)
 
 github: $(GITHUB_TARGET)
+
+url-test: $(URL_TEST_TARGET)
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
@@ -32,11 +35,14 @@ $(CACHE_TARGET): $(CACHE_OBJECTS)
 $(GITHUB_TARGET): $(GITHUB_OBJECTS) github_test.o
 	$(CC) $(GITHUB_OBJECTS) github_test.o -o $@ $(LDFLAGS)
 
+$(URL_TEST_TARGET): github_api.o test_url_parsing.o
+	$(CC) github_api.o test_url_parsing.o -o $@ $(LDFLAGS)
+
 %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJECTS) $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o $(TARGET) $(CACHE_TARGET) $(GITHUB_TARGET)
+	rm -f $(OBJECTS) $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o $(TARGET) $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET)
 
 clean-cache:
 	@echo "Cleaning cache and repository directories..."
@@ -59,6 +65,8 @@ help:
 	@echo "  test         Run git-mycommand tests"
 	@echo "  github-test  Run GitHub API tests"
 	@echo "  cache-test   Run git-cache integration tests"
+	@echo "  url-test-run Run URL parsing tests"
+	@echo "  test-all     Run all test suites"
 	@echo ""
 	@echo "Cleanup targets:"
 	@echo "  clean        Remove compiled objects and binaries"
@@ -93,6 +101,12 @@ github-test: $(GITHUB_TARGET)
 
 cache-test: $(CACHE_TARGET)
 	./tests/run_cache_tests.sh
+
+url-test-run: $(URL_TEST_TARGET)
+	./tests/run_url_tests.sh
+
+test-all: $(CACHE_TARGET) $(URL_TEST_TARGET)
+	./tests/run_all_tests.sh
 
 debug: CFLAGS += -g -DDEBUG
 debug: clean $(TARGET)
