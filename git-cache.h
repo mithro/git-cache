@@ -13,66 +13,66 @@
 
 /* Repository types */
 enum repo_type {
-    REPO_TYPE_GITHUB,
-    REPO_TYPE_UNKNOWN
+	REPO_TYPE_GITHUB,
+	REPO_TYPE_UNKNOWN
 };
 
 /* Clone strategies */
 enum clone_strategy {
-    CLONE_STRATEGY_FULL,
-    CLONE_STRATEGY_SHALLOW,
-    CLONE_STRATEGY_TREELESS,
-    CLONE_STRATEGY_BLOBLESS
+	CLONE_STRATEGY_FULL,
+	CLONE_STRATEGY_SHALLOW,
+	CLONE_STRATEGY_TREELESS,
+	CLONE_STRATEGY_BLOBLESS
 };
 
 /* Cache operation modes */
 enum cache_operation {
-    CACHE_OP_CLONE,
-    CACHE_OP_STATUS,
-    CACHE_OP_CLEAN,
-    CACHE_OP_SYNC,
-    CACHE_OP_LIST
+	CACHE_OP_CLONE,
+	CACHE_OP_STATUS,
+	CACHE_OP_CLEAN,
+	CACHE_OP_SYNC,
+	CACHE_OP_LIST
 };
 
 /* Repository information */
 struct repo_info {
-    char *original_url;
-    char *owner;
-    char *name;
-    char *cache_path;
-    char *checkout_path;
-    char *modifiable_path;
-    enum repo_type type;
-    enum clone_strategy strategy;
-    int is_fork_needed;
-    char *fork_organization;
+	char *original_url;
+	char *owner;
+	char *name;
+	char *cache_path;
+	char *checkout_path;
+	char *modifiable_path;
+	enum repo_type type;
+	enum clone_strategy strategy;
+	int is_fork_needed;
+	char *fork_organization;
 };
 
 /* Cache configuration */
 struct cache_config {
-    char *cache_root;
-    char *checkout_root;
-    char *github_token;
-    enum clone_strategy default_strategy;
-    int verbose;
-    int force;
-    int recursive_submodules;
+	char *cache_root;
+	char *checkout_root;
+	char *github_token;
+	enum clone_strategy default_strategy;
+	int verbose;
+	int force;
+	int recursive_submodules;
 };
 
 /* Command line options */
 struct cache_options {
-    enum cache_operation operation;
-    char *url;
-    char *target_path;
-    enum clone_strategy strategy;
-    int depth;
-    int verbose;
-    int force;
-    int help;
-    int version;
-    int recursive_submodules;
-    char *organization;
-    int make_private;
+	enum cache_operation operation;
+	char *url;
+	char *target_path;
+	enum clone_strategy strategy;
+	int depth;
+	int verbose;
+	int force;
+	int help;
+	int version;
+	int recursive_submodules;
+	char *organization;
+	int make_private;
 };
 
 /* Function prototypes */

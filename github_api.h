@@ -10,29 +10,29 @@
 
 /* GitHub API response structure */
 struct github_response {
-    char *data;
-    size_t size;
-    long status_code;
-    char *error_message;
+	char *data;
+	size_t size;
+	long status_code;
+	char *error_message;
 };
 
 /* GitHub repository information */
 struct github_repo {
-    char *owner;
-    char *name;
-    char *full_name;
-    char *clone_url;
-    char *ssh_url;
-    int is_fork;
-    int is_private;
-    int fork_count;
+	char *owner;
+	char *name;
+	char *full_name;
+	char *clone_url;
+	char *ssh_url;
+	int is_fork;
+	int is_private;
+	int fork_count;
 };
 
 /* GitHub API client */
 struct github_client {
-    char *token;
-    char *user_agent;
-    int timeout;
+	char *token;
+	char *user_agent;
+	int timeout;
 };
 
 /* Function prototypes */
@@ -48,11 +48,11 @@ void github_response_destroy(struct github_response *response);
 
 /* Repository operations */
 int github_get_repo(struct github_client *client, const char *owner, const char *repo, 
-                   struct github_repo **result);
+	               struct github_repo **result);
 int github_fork_repo(struct github_client *client, const char *owner, const char *repo, 
-                     const char *organization, struct github_repo **result);
+	                 const char *organization, struct github_repo **result);
 int github_set_repo_private(struct github_client *client, const char *owner, const char *repo, 
-                           int is_private);
+	                       int is_private);
 
 /* Repository structure management */
 struct github_repo* github_repo_create(void);
