@@ -1715,8 +1715,82 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                        printf("  %s/%s", entry->d_name, repo_entry->d_name);
 	                        
 	                        if (options->verbose) {
-	                            /* Show additional information */
+	                            /* Show detailed repository information */
 	                            printf("\n    Cache path: %s", repo_path);
+	                            
+	                            /* Get repository size */
+	                            char *du_cmd = malloc(strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1);
+	                            if (du_cmd) {
+	                                snprintf(du_cmd, strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1,
+	                                         "du -sh \"%s\" 2>/dev/null | cut -f1", repo_path);
+	                                
+	                                FILE *pipe = popen(du_cmd, "r");
+	                                if (pipe) {
+	                                    char size_buf[32];
+	                                    if (fgets(size_buf, sizeof(size_buf), pipe)) {
+	                                        /* Remove newline */
+	                                        char *newline = strchr(size_buf, '\n');
+	                                        if (newline) *newline = '\0';
+	                                        printf("\n    Size: %s", size_buf);
+	                                    }
+	                                    pclose(pipe);
+	                                }
+	                                free(du_cmd);
+	                            }
+	                            
+	                            /* Get last sync time from HEAD modification time */
+	                            char *head_path = malloc(strlen(repo_path) + strlen("/HEAD") + 1);
+	                            if (head_path) {
+	                                snprintf(head_path, strlen(repo_path) + strlen("/HEAD") + 1, "%s/HEAD", repo_path);
+	                                struct stat st;
+	                                if (stat(head_path, &st) == 0) {
+	                                    char time_buf[64];
+	                                    struct tm *tm_info = localtime(&st.st_mtime);
+	                                    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+	                                    printf("\n    Last sync: %s", time_buf);
+	                                }
+	                                free(head_path);
+	                            }
+	                            
+	                            /* Get remote URL */
+	                            char *remote_cmd = malloc(strlen("cd \"") + strlen(repo_path) + strlen("\" && git config --get remote.origin.url 2>/dev/null") + 1);
+	                            if (remote_cmd) {
+	                                snprintf(remote_cmd, strlen("cd \"") + strlen(repo_path) + strlen("\" && git config --get remote.origin.url 2>/dev/null") + 1,
+	                                         "cd \"%s\" && git config --get remote.origin.url 2>/dev/null", repo_path);
+	                                
+	                                FILE *pipe = popen(remote_cmd, "r");
+	                                if (pipe) {
+	                                    char url_buf[512];
+	                                    if (fgets(url_buf, sizeof(url_buf), pipe)) {
+	                                        /* Remove newline */
+	                                        char *newline = strchr(url_buf, '\n');
+	                                        if (newline) *newline = '\0';
+	                                        printf("\n    Remote URL: %s", url_buf);
+	                                    }
+	                                    pclose(pipe);
+	                                }
+	                                free(remote_cmd);
+	                            }
+	                            
+	                            /* Get branch count */
+	                            char *branch_cmd = malloc(strlen("cd \"") + strlen(repo_path) + strlen("\" && git branch -r 2>/dev/null | wc -l") + 1);
+	                            if (branch_cmd) {
+	                                snprintf(branch_cmd, strlen("cd \"") + strlen(repo_path) + strlen("\" && git branch -r 2>/dev/null | wc -l") + 1,
+	                                         "cd \"%s\" && git branch -r 2>/dev/null | wc -l", repo_path);
+	                                
+	                                FILE *pipe = popen(branch_cmd, "r");
+	                                if (pipe) {
+	                                    char count_buf[16];
+	                                    if (fgets(count_buf, sizeof(count_buf), pipe)) {
+	                                        int branch_count = atoi(count_buf);
+	                                        if (branch_count > 0) {
+	                                            printf("\n    Branches: %d", branch_count);
+	                                        }
+	                                    }
+	                                    pclose(pipe);
+	                                }
+	                                free(branch_cmd);
+	                            }
 	                            
 	                            /* Check for corresponding checkouts */
 	                            size_t checkout_path_len = strlen(config->checkout_root) + 1 + 
@@ -1727,6 +1801,33 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                                       entry->d_name, repo_entry->d_name);
 	                                if (directory_exists(checkout_path)) {
 	                                    printf("\n    Checkout: %s", checkout_path);
+	                                    
+	                                    /* Determine checkout strategy based on git config */
+	                                    char *strategy_cmd = malloc(strlen("cd \"") + strlen(checkout_path) + strlen("\" && git config --get remote.origin.fetch 2>/dev/null") + 1);
+	                                    if (strategy_cmd) {
+	                                        snprintf(strategy_cmd, strlen("cd \"") + strlen(checkout_path) + strlen("\" && git config --get remote.origin.fetch 2>/dev/null") + 1,
+	                                                 "cd \"%s\" && git config --get remote.origin.fetch 2>/dev/null", checkout_path);
+	                                        
+	                                        FILE *pipe = popen(strategy_cmd, "r");
+	                                        if (pipe) {
+	                                            char fetch_buf[256];
+	                                            if (fgets(fetch_buf, sizeof(fetch_buf), pipe)) {
+	                                                if (strstr(fetch_buf, "filter=blob:none")) {
+	                                                    printf(" (blobless)");
+	                                                } else if (strstr(fetch_buf, "filter=tree:0")) {
+	                                                    printf(" (treeless)");
+	                                                } else if (strstr(fetch_buf, "depth=")) {
+	                                                    printf(" (shallow)");
+	                                                } else {
+	                                                    printf(" (full)");
+	                                                }
+	                                            }
+	                                            pclose(pipe);
+	                                        }
+	                                        free(strategy_cmd);
+	                                    }
+	                                } else {
+	                                    printf("\n    Checkout: not created");
 	                                }
 	                                free(checkout_path);
 	                            }
@@ -1739,6 +1840,8 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                                       entry->d_name, repo_entry->d_name);
 	                                if (directory_exists(modifiable_path)) {
 	                                    printf("\n    Modifiable: %s", modifiable_path);
+	                                } else {
+	                                    printf("\n    Modifiable: not created");
 	                                }
 	                                free(modifiable_path);
 	                            }
@@ -2086,14 +2189,161 @@ static int cache_clean(const struct cache_options *options)
 
 static int cache_sync(const struct cache_options *options)
 {
-	printf("Cache sync:\n");
-	if (options->verbose) {
-	    printf("  Verbose mode enabled\n");
+	/* Create and load configuration */
+	struct cache_config *config = cache_config_create();
+	if (!config) {
+	    return CACHE_ERROR_MEMORY;
 	}
 	
-	/* TODO: Implement cache sync */
-	printf("TODO: Implement cache sync functionality\n");
-	return CACHE_SUCCESS;
+	int ret = cache_config_load(config);
+	if (ret != CACHE_SUCCESS) {
+	    cache_config_destroy(config);
+	    return ret;
+	}
+	
+	if (options->verbose) {
+	    printf("Synchronizing cached repositories...\n");
+	    printf("Cache root: %s\n", config->cache_root ? config->cache_root : "not set");
+	}
+	
+	if (!config->cache_root) {
+	    fprintf(stderr, "error: cache root directory not set\n");
+	    cache_config_destroy(config);
+	    return CACHE_ERROR_CONFIG;
+	}
+	
+	if (!directory_exists(config->cache_root)) {
+	    printf("No cache directory found\n");
+	    cache_config_destroy(config);
+	    return CACHE_SUCCESS;
+	}
+	
+	/* Scan for cached repositories */
+	char *github_path = malloc(strlen(config->cache_root) + strlen("/github.com") + 1);
+	if (!github_path) {
+	    cache_config_destroy(config);
+	    return CACHE_ERROR_MEMORY;
+	}
+	snprintf(github_path, strlen(config->cache_root) + strlen("/github.com") + 1,
+	         "%s/github.com", config->cache_root);
+	
+	if (!directory_exists(github_path)) {
+	    printf("No cached repositories found\n");
+	    free(github_path);
+	    cache_config_destroy(config);
+	    return CACHE_SUCCESS;
+	}
+	
+	int synced_count = 0;
+	int failed_count = 0;
+	
+	/* Iterate through cached repositories */
+	DIR *github_dir = opendir(github_path);
+	if (!github_dir) {
+	    printf("Unable to scan cache directory\n");
+	    free(github_path);
+	    cache_config_destroy(config);
+	    return CACHE_ERROR_FILESYSTEM;
+	}
+	
+	struct dirent *owner_entry;
+	while ((owner_entry = readdir(github_dir)) != NULL) {
+	    if (strcmp(owner_entry->d_name, ".") == 0 || strcmp(owner_entry->d_name, "..") == 0) {
+	        continue;
+	    }
+	    
+	    char *owner_path = malloc(strlen(github_path) + strlen("/") + strlen(owner_entry->d_name) + 1);
+	    if (!owner_path) {
+	        continue;
+	    }
+	    snprintf(owner_path, strlen(github_path) + strlen("/") + strlen(owner_entry->d_name) + 1,
+	             "%s/%s", github_path, owner_entry->d_name);
+	    
+	    if (!directory_exists(owner_path)) {
+	        free(owner_path);
+	        continue;
+	    }
+	    
+	    DIR *owner_dir = opendir(owner_path);
+	    if (!owner_dir) {
+	        free(owner_path);
+	        continue;
+	    }
+	    
+	    struct dirent *repo_entry;
+	    while ((repo_entry = readdir(owner_dir)) != NULL) {
+	        if (strcmp(repo_entry->d_name, ".") == 0 || strcmp(repo_entry->d_name, "..") == 0) {
+	            continue;
+	        }
+	        
+	        char *repo_path = malloc(strlen(owner_path) + strlen("/") + strlen(repo_entry->d_name) + 1);
+	        if (!repo_path) {
+	            continue;
+	        }
+	        snprintf(repo_path, strlen(owner_path) + strlen("/") + strlen(repo_entry->d_name) + 1,
+	                 "%s/%s", owner_path, repo_entry->d_name);
+	        
+	        if (is_git_repository_at(repo_path) && validate_git_repository(repo_path, 1)) {
+	            if (options->verbose) {
+	                printf("Syncing %s/%s...\n", owner_entry->d_name, repo_entry->d_name);
+	            }
+	            
+	            /* Acquire lock for this repository */
+	            int lock_ret = acquire_lock(repo_path, config);
+	            if (lock_ret != CACHE_SUCCESS) {
+	                if (options->verbose) {
+	                    printf("  Skipped (locked by another process)\n");
+	                }
+	                free(repo_path);
+	                continue;
+	            }
+	            
+	            /* Perform git fetch to sync */
+	            char *fetch_cmd = malloc(strlen("git fetch --all --prune") + 1);
+	            if (!fetch_cmd) {
+	                release_lock(repo_path);
+	                free(repo_path);
+	                continue;
+	            }
+	            strcpy(fetch_cmd, "git fetch --all --prune");
+	            
+	            int fetch_result = run_git_command(fetch_cmd, repo_path);
+	            free(fetch_cmd);
+	            
+	            if (fetch_result == 0) {
+	                synced_count++;
+	                if (options->verbose) {
+	                    printf("  ✓ Synchronized\n");
+	                }
+	            } else {
+	                failed_count++;
+	                if (options->verbose) {
+	                    printf("  ✗ Sync failed (exit code: %d)\n", fetch_result);
+	                }
+	            }
+	            
+	            release_lock(repo_path);
+	        }
+	        
+	        free(repo_path);
+	    }
+	    
+	    closedir(owner_dir);
+	    free(owner_path);
+	}
+	
+	closedir(github_dir);
+	free(github_path);
+	
+	/* Print summary */
+	printf("Cache sync completed:\n");
+	printf("  Synchronized: %d repositories\n", synced_count);
+	if (failed_count > 0) {
+	    printf("  Failed: %d repositories\n", failed_count);
+	}
+	
+	cache_config_destroy(config);
+	return (failed_count == 0) ? CACHE_SUCCESS : CACHE_ERROR_NETWORK;
 }
 
 static int cache_list(const struct cache_options *options)
