@@ -23,7 +23,7 @@ jobs:
     - name: Build binaries
       run: |
         make clean
-        make all
+        make cache
         make url-test
         make github
         
@@ -68,7 +68,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         make clean
-        make all
+        make cache
         make url-test
         make github
         make test-all
@@ -89,7 +89,7 @@ jobs:
     - name: Build with warnings
       run: |
         make clean
-        make CFLAGS="-Wall -Wextra -Werror -std=c99 -pedantic -O2" all
+        make CFLAGS="-Wall -Wextra -Werror -std=c99 -pedantic -O2" cache
         
     - name: Run static analysis
       run: |

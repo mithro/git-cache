@@ -1,114 +1,140 @@
-# git-mycommand
+# git-cache
 
 [![CI](https://github.com/mithro/git-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/ci.yml)
 [![Test Suite](https://github.com/mithro/git-cache/actions/workflows/test.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/test.yml)
 
-A template for creating custom git subcommands in C.
+A high-performance Git repository caching tool that speeds up clone operations and manages shared repository storage.
 
 ## Description
 
-This project provides a template for building custom git subcommands in C. Git subcommands are executables that can be invoked as `git <command-name>`. When you name your executable `git-mycommand` and place it in your PATH, you can run it as `git mycommand`.
+git-cache is a sophisticated caching system for Git repositories that creates efficient local caches and provides instant access to repositories through reference-based clones. It significantly reduces network usage and clone times by maintaining local bare repositories and creating lightweight checkouts that share objects.
 
 ## Features
 
-- Basic argument parsing with help and verbose options
-- Git repository detection
-- Proper error handling and exit codes
-- Comprehensive test suite
-- Easy installation via Makefile
+- **Smart Caching**: Maintains bare repositories as efficient local caches
+- **Reference-based Clones**: Creates fast, space-efficient checkouts using Git alternates
+- **Multiple Clone Strategies**: Full, shallow, treeless, and blobless clones
+- **GitHub Integration**: Automatic fork management and GitHub API integration  
+- **Comprehensive URL Support**: Handles all common Git URL formats (https, ssh, git+ssh, etc.)
+- **Dual Checkout System**: Read-only and modifiable repository copies
+- **Cache Management**: List, clean, and sync cached repositories
+- **Robust Error Handling**: Graceful handling of network issues and cache corruption
 
 ## Building
 
+Build the main git-cache tool:
 ```bash
-make
+make cache
 ```
 
-For debugging:
+Build all components including tests:
 ```bash
-make debug
-```
-
-For static linking:
-```bash
-make static
+make all
 ```
 
 ## Installation
 
+Install to system directories:
 ```bash
-make install
+sudo make install
 ```
 
-This will install the binary to `/usr/local/bin/`. You can customize the installation prefix:
-
-```bash
-make install PREFIX=/opt/local
-```
+This installs `git-cache` to `/usr/local/bin/` by default.
 
 ## Usage
 
+### Basic Operations
+
+Clone a repository with caching:
 ```bash
-git mycommand [options] [args]
+git-cache clone https://github.com/user/repo.git
 ```
 
-### Options
-
-- `-h, --help`: Show help message
-- `-v, --verbose`: Enable verbose output
-
-### Examples
-
+Show cache status and configuration:
 ```bash
-# Basic usage
-git mycommand
-
-# With verbose output
-git mycommand -v
-
-# With arguments
-git mycommand arg1 arg2
-
-# Show help
-git mycommand --help
+git-cache status
 ```
+
+List all cached repositories:
+```bash
+git-cache list
+```
+
+Clean up cache and checkouts:
+```bash
+git-cache clean
+```
+
+### Advanced Usage
+
+Clone with specific strategy:
+```bash
+git-cache clone --strategy shallow --depth 1 https://github.com/user/repo.git
+git-cache clone --strategy treeless https://github.com/user/repo.git
+git-cache clone --strategy blobless https://github.com/user/repo.git
+```
+
+Verbose output:
+```bash
+git-cache clone --verbose https://github.com/user/repo.git
+```
+
+## Repository Structure
+
+git-cache creates a three-tier structure:
+
+1. **Cache** (`~/.cache/git/github.com/user/repo`): Bare repository for efficient storage
+2. **Read-only Checkout** (`./github/user/repo`): Reference-based clone for browsing
+3. **Modifiable Checkout** (`./github/mithro/user-repo`): Development copy with blobless strategy
+
+## Configuration
+
+git-cache uses environment variables for configuration:
+
+- `GIT_CACHE`: Override cache directory (default: `~/.cache/git`)
+- `GIT_CHECKOUT_ROOT`: Override checkout directory (default: `./github`)
+- `GITHUB_TOKEN`: GitHub API token for private repositories and forking
 
 ## Testing
 
-Run the test suite:
-
+Run comprehensive test suite:
 ```bash
-make test
+make test-all
 ```
 
-## Customization
-
-To create your own git subcommand:
-
-1. Rename `git-mycommand.c` to `git-yourcommand.c`
-2. Update the `TARGET` variable in the Makefile
-3. Modify the `PROGRAM_NAME` in `git-mycommand.h`
-4. Implement your custom functionality in the main function
-5. Update tests and documentation accordingly
-
-## Project Structure
-
-```
-.
-├── git-mycommand.c     # Main source file
-├── git-mycommand.h     # Header file
-├── Makefile           # Build configuration
-├── README.md          # This file
-├── tests/
-│   └── run_tests.sh   # Test runner script
-└── .gitignore         # Git ignore patterns
+Run specific test categories:
+```bash
+make cache-test      # Integration tests
+make url-test-run    # URL parsing tests  
+make github-test     # GitHub API tests
 ```
 
-## Requirements
+## Development
 
-- GCC or compatible C compiler
-- Make
-- Git (for testing git repository detection)
+Build with debug symbols:
+```bash
+make debug
+```
+
+Run static analysis:
+```bash
+cppcheck --enable=warning *.c
+```
+
+## Architecture
+
+- **git-cache.c**: Main application logic and cache management
+- **github_api.c**: GitHub API integration and URL parsing
+- **Comprehensive Test Suite**: 45+ tests covering all functionality
+- **CI/CD Pipeline**: GitHub Actions for continuous integration
+
+## Contributing
+
+1. Follow Git project coding style (tabs for indentation)
+2. Add tests for new functionality  
+3. Ensure all tests pass with `make test-all`
+4. Update documentation for user-facing changes
 
 ## License
 
-This template is provided as-is for educational and development purposes.
+This project is licensed under the same terms as the Git project itself.

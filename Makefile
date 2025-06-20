@@ -1,33 +1,27 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -pedantic -O2
 LDFLAGS = -lcurl -ljson-c
-TARGET = git-mycommand
 CACHE_TARGET = git-cache
 GITHUB_TARGET = github_test
 URL_TEST_TARGET = test_url_parsing
-SOURCES = git-mycommand.c
 CACHE_SOURCES = git-cache.c github_api.c
 GITHUB_SOURCES = github_api.c
-OBJECTS = $(SOURCES:.c=.o)
 CACHE_OBJECTS = $(CACHE_SOURCES:.c=.o)
 GITHUB_OBJECTS = $(GITHUB_SOURCES:.c=.o)
-HEADERS = git-mycommand.h git-cache.h github_api.h
+HEADERS = git-cache.h github_api.h
 
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-.PHONY: all clean install uninstall test github-test cache-test url-test-run test-all clean-cache clean-all help
+.PHONY: all clean install uninstall github-test cache-test url-test-run test-all clean-cache clean-all help
 
-all: $(TARGET) $(CACHE_TARGET)
+all: $(CACHE_TARGET)
 
 cache: $(CACHE_TARGET)
 
 github: $(GITHUB_TARGET)
 
 url-test: $(URL_TEST_TARGET)
-
-$(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
 
 $(CACHE_TARGET): $(CACHE_OBJECTS)
 	$(CC) $(CACHE_OBJECTS) -o $@ $(LDFLAGS)
@@ -42,7 +36,7 @@ $(URL_TEST_TARGET): github_api.o test_url_parsing.o
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJECTS) $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o $(TARGET) $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET)
+	rm -f $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET)
 
 clean-cache:
 	@echo "Cleaning cache and repository directories..."
@@ -57,12 +51,12 @@ help:
 	@echo "=================================="
 	@echo ""
 	@echo "Build targets:"
-	@echo "  all          Build all programs (git-mycommand and git-cache)"
+	@echo "  all          Build git-cache program"
 	@echo "  cache        Build git-cache program only"
 	@echo "  github       Build github_test program only"
+	@echo "  url-test     Build URL parsing test program"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  test         Run git-mycommand tests"
 	@echo "  github-test  Run GitHub API tests"
 	@echo "  cache-test   Run git-cache integration tests"
 	@echo "  url-test-run Run URL parsing tests"
@@ -86,15 +80,14 @@ help:
 	@echo "  make clean-cache  # Clean up test repositories"
 	@echo "  make cache-test   # Run full test suite"
 
-install: $(TARGET)
+install: $(CACHE_TARGET)
 	install -d $(BINDIR)
-	install -m 755 $(TARGET) $(BINDIR)/
+	install -m 755 $(CACHE_TARGET) $(BINDIR)/
 
 uninstall:
-	rm -f $(BINDIR)/$(TARGET)
+	rm -f $(BINDIR)/$(CACHE_TARGET)
 
-test: $(TARGET)
-	./tests/run_tests.sh
+# Legacy test target removed - use specific test targets instead
 
 github-test: $(GITHUB_TARGET)
 	./tests/run_github_tests.sh

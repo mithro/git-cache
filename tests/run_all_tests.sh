@@ -84,11 +84,6 @@ fi
 # Run git-cache integration tests
 run_test_suite "Git Cache Integration Tests" "$SCRIPT_DIR/run_cache_tests.sh"
 
-# Run basic git-mycommand tests (if binary exists)
-if [ -f "$PROJECT_DIR/git-mycommand" ]; then
-	run_test_suite "Git MyCommand Tests" "$SCRIPT_DIR/run_tests.sh"
-fi
-
 echo -e "${BLUE}Overall Test Suite Summary${NC}"
 echo "=========================="
 echo -e "  Total test suites: $SUITES_RUN"

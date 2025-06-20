@@ -2,7 +2,6 @@
 *.d
 
 # Compiled binaries
-git-mycommand
 git-cache
 github_test
 test_url_parsing
