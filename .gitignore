@@ -89,4 +89,7 @@ core.*
 modules.order
 Module.symvers
 Mkfile.old
-dkms.conf
+dkms.confdocs/venv/
+docs/doxygen/
+docs/source/api/
+docs/build/
