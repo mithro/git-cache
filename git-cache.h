@@ -37,6 +37,7 @@ enum cache_operation {
 /* Repository information */
 struct repo_info {
 	char *original_url;
+	char *fork_url;  /* URL of the forked repository */
 	char *owner;
 	char *name;
 	char *cache_path;

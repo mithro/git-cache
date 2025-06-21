@@ -524,6 +524,7 @@ static void repo_info_destroy(struct repo_info *repo)
 	}
 	
 	free(repo->original_url);
+	free(repo->fork_url);
 	free(repo->owner);
 	free(repo->name);
 	free(repo->cache_path);
@@ -1538,7 +1539,7 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 }
 
 /* Handle GitHub repository forking */
-static int handle_github_fork(const struct repo_info *repo, const struct cache_config *config, 
+static int handle_github_fork(struct repo_info *repo, const struct cache_config *config, 
 	                         const struct cache_options *options)
 {
 	if (!repo || !config || !options) {
@@ -1564,6 +1565,13 @@ static int handle_github_fork(const struct repo_info *repo, const struct cache_c
 	        printf("Fork created: %s\n", forked_repo->full_name);
 	    }
 	    
+	    /* Store the fork URL for use in modifiable checkout */
+	    if (forked_repo->ssh_url) {
+	        repo->fork_url = strdup(forked_repo->ssh_url);
+	    } else if (forked_repo->clone_url) {
+	        repo->fork_url = strdup(forked_repo->clone_url);
+	    }
+	    
 	    /* Set fork to private if requested */
 	    if (options->make_private) {
 	        ret = github_set_repo_private(client, forked_repo->owner, forked_repo->name, 1);
@@ -1583,6 +1591,12 @@ static int handle_github_fork(const struct repo_info *repo, const struct cache_c
 	    if (config->verbose) {
 	        printf("Fork already exists or validation error\n");
 	    }
+	    /* Try to construct the fork URL even if fork already exists */
+	    char constructed_url[1024];
+	    snprintf(constructed_url, sizeof(constructed_url), 
+	             "git@github.com:%s/%s-%s.git", 
+	             repo->fork_organization, repo->owner, repo->name);
+	    repo->fork_url = strdup(constructed_url);
 	    ret = CACHE_SUCCESS; /* Not a fatal error */
 	} else {
 	    if (config->verbose) {
@@ -1610,8 +1624,13 @@ static int create_reference_checkouts(const struct repo_info *repo, const struct
 	}
 	
 	/* Create modifiable checkout (always use blobless for development) */
+	/* Use fork URL if available, otherwise original URL */
+	const char *modifiable_url = repo->fork_url ? repo->fork_url : repo->original_url;
+	if (config->verbose && repo->fork_url) {
+	    printf("Using forked repository for modifiable checkout: %s\n", modifiable_url);
+	}
 	ret = create_reference_checkout(repo->cache_path, repo->modifiable_path,
-	                               CLONE_STRATEGY_BLOBLESS, options, config, repo->original_url);
+	                               CLONE_STRATEGY_BLOBLESS, options, config, modifiable_url);
 	if (ret != CACHE_SUCCESS) {
 	    return ret;
 	}
