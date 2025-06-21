@@ -1,0 +1,136 @@
+/* Custom CSS for git-cache documentation */
+
+/* Improve code block styling */
+.highlight {
+    border-radius: 4px;
+    border: 1px solid #e1e4e5;
+}
+
+.highlight pre {
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+/* Style for API documentation */
+.exhale-root {
+    margin-top: 20px;
+}
+
+/* Improve table styling */
+table.docutils {
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+
+table.docutils th,
+table.docutils td {
+    border: 1px solid #e1e4e5;
+    padding: 8px 12px;
+}
+
+table.docutils th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+/* Style for admonitions */
+.admonition {
+    margin: 20px 0;
+    padding: 15px;
+    border-radius: 4px;
+    border-left: 4px solid #2980b9;
+}
+
+.admonition.warning {
+    border-left-color: #f39c12;
+    background-color: #fef9e7;
+}
+
+.admonition.note {
+    border-left-color: #2980b9;
+    background-color: #e7f2fa;
+}
+
+.admonition.tip {
+    border-left-color: #27ae60;
+    background-color: #e8f5e8;
+}
+
+/* Improve navigation */
+.wy-side-nav-search {
+    background-color: #2c3e50;
+}
+
+.wy-side-nav-search > a {
+    color: #fff;
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+/* Style for version badges */
+.badge {
+    display: inline-block;
+    padding: 0.25em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+}
+
+.badge-primary {
+    color: #fff;
+    background-color: #007bff;
+}
+
+.badge-success {
+    color: #fff;
+    background-color: #28a745;
+}
+
+.badge-warning {
+    color: #212529;
+    background-color: #ffc107;
+}
+
+/* Improve code inline styling */
+code.literal {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 87.5%;
+}
+
+/* Style for git-cache specific elements */
+.git-cache-command {
+    background-color: #f1f3f4;
+    border-left: 4px solid #34a853;
+    padding: 10px;
+    margin: 10px 0;
+    font-family: monospace;
+}
+
+.git-cache-output {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    padding: 10px;
+    margin: 10px 0;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .highlight pre {
+        font-size: 12px;
+        padding: 8px;
+    }
+    
+    .wy-nav-content {
+        padding: 1.618em 1em;
+    }
+}

@@ -1,0 +1,18 @@
+# Documentation requirements for git-cache
+# Install with: pip install -r docs/requirements.txt
+
+# Core Sphinx and extensions
+sphinx>=5.0.0
+sphinx-rtd-theme>=1.2.0
+
+# API documentation generation
+breathe>=4.34.0
+exhale>=0.3.6
+
+# Enhanced documentation features
+sphinx-copybutton>=0.5.0
+sphinx-autobuild>=2021.3.14
+myst-parser>=0.18.0
+
+# Doxygen integration (requires doxygen to be installed separately)
+# Install doxygen: sudo apt-get install doxygen (Ubuntu/Debian) or brew install doxygen (macOS)
