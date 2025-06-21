@@ -689,6 +689,165 @@ static int is_git_repository_at(const char *path)
 	return is_git_repo;
 }
 
+/* Check available disk space for operations */
+static int check_disk_space(const char *path, size_t required_mb)
+{
+	if (!path) {
+	    return 0;
+	}
+	
+	/* Use df command to check available space */
+	char *df_cmd = malloc(strlen("df -m \"") + strlen(path) + 
+	                     strlen("\" | tail -1 | awk '{print $4}'") + 1);
+	if (!df_cmd) {
+	    return 0;
+	}
+	
+	snprintf(df_cmd, strlen("df -m \"") + strlen(path) + 
+	         strlen("\" | tail -1 | awk '{print $4}'") + 1,
+	         "df -m \"%s\" | tail -1 | awk '{print $4}'", path);
+	
+	FILE *fp = popen(df_cmd, "r");
+	free(df_cmd);
+	
+	if (!fp) {
+	    return 0;
+	}
+	
+	char space_str[32];
+	if (fgets(space_str, sizeof(space_str), fp) == NULL) {
+	    pclose(fp);
+	    return 0;
+	}
+	
+	pclose(fp);
+	
+	/* Parse available space in MB */
+	char *endptr;
+	long available_mb = strtol(space_str, &endptr, 10);
+	
+	if (endptr == space_str || available_mb < 0) {
+	    /* If we can't determine space, assume it's okay */
+	    return 1;
+	}
+	
+	return (size_t)available_mb >= required_mb;
+}
+
+/* Retry network operation with exponential backoff */
+static int retry_network_operation(const char *cmd, int max_retries, const struct cache_config *config)
+{
+	if (!cmd) {
+	    return -1;
+	}
+	
+	int attempt = 0;
+	int delay = 1; /* Start with 1 second delay */
+	
+	while (attempt < max_retries) {
+	    if (config->verbose && attempt > 0) {
+	        printf("Retrying network operation (attempt %d/%d)...\n", attempt + 1, max_retries);
+	    }
+	    
+	    int result = system(cmd);
+	    int exit_code = WEXITSTATUS(result);
+	    
+	    /* Success */
+	    if (exit_code == 0) {
+	        return 0;
+	    }
+	    
+	    /* Non-recoverable errors (authentication, not found, etc.) */
+	    if (exit_code == 128 || exit_code == 1) {
+	        return exit_code;
+	    }
+	    
+	    attempt++;
+	    
+	    /* If not the last attempt, wait before retrying */
+	    if (attempt < max_retries) {
+	        if (config->verbose) {
+	            printf("Network operation failed with code %d, waiting %d seconds before retry...\n", 
+	                   exit_code, delay);
+	        }
+	        sleep(delay);
+	        delay *= 2; /* Exponential backoff */
+	        if (delay > 16) delay = 16; /* Cap at 16 seconds */
+	    }
+	}
+	
+	return -1; /* All retries failed */
+}
+
+/* Perform deep integrity validation using git commands */
+static int validate_git_repository_integrity(const char *repo_path, int is_bare)
+{
+	if (!repo_path) {
+	    return 0;
+	}
+	
+	/* Build command to check repository integrity */
+	char *integrity_cmd = malloc(strlen("cd \"") + strlen(repo_path) + 
+	                           strlen("\" && git rev-parse --git-dir >/dev/null 2>&1") + 1);
+	if (!integrity_cmd) {
+	    return 0;
+	}
+	
+	snprintf(integrity_cmd, strlen("cd \"") + strlen(repo_path) + 
+	         strlen("\" && git rev-parse --git-dir >/dev/null 2>&1") + 1,
+	         "cd \"%s\" && git rev-parse --git-dir >/dev/null 2>&1", repo_path);
+	
+	int result = system(integrity_cmd);
+	free(integrity_cmd);
+	
+	if (WEXITSTATUS(result) != 0) {
+	    return 0;
+	}
+	
+	/* For bare repositories, check if we can list refs */
+	if (is_bare) {
+	    char *refs_cmd = malloc(strlen("cd \"") + strlen(repo_path) + 
+	                          strlen("\" && git show-ref >/dev/null 2>&1") + 1);
+	    if (!refs_cmd) {
+	        return 0;
+	    }
+	    
+	    snprintf(refs_cmd, strlen("cd \"") + strlen(repo_path) + 
+	             strlen("\" && git show-ref >/dev/null 2>&1") + 1,
+	             "cd \"%s\" && git show-ref >/dev/null 2>&1", repo_path);
+	    
+	    int refs_result = system(refs_cmd);
+	    free(refs_cmd);
+	    
+	    /* Empty repositories might have no refs, which is okay */
+	    /* We just check that the command doesn't fail with corruption errors */
+	    if (WEXITSTATUS(refs_result) > 1) {
+	        return 0;
+	    }
+	} else {
+	    /* For working tree, check if we can get HEAD */
+	    char *head_cmd = malloc(strlen("cd \"") + strlen(repo_path) + 
+	                          strlen("\" && git rev-parse HEAD >/dev/null 2>&1") + 1);
+	    if (!head_cmd) {
+	        return 0;
+	    }
+	    
+	    snprintf(head_cmd, strlen("cd \"") + strlen(repo_path) + 
+	             strlen("\" && git rev-parse HEAD >/dev/null 2>&1") + 1,
+	             "cd \"%s\" && git rev-parse HEAD >/dev/null 2>&1", repo_path);
+	    
+	    int head_result = system(head_cmd);
+	    free(head_cmd);
+	    
+	    /* Allow newly created repositories or repositories without commits */
+	    if (WEXITSTATUS(head_result) > 128) {
+	        return 0;
+	    }
+	}
+	
+	return 1;
+}
+
 /* Validate that a git repository is healthy and complete */
 static int validate_git_repository(const char *repo_path, int is_bare)
 {
@@ -743,16 +902,21 @@ static int validate_git_repository(const char *repo_path, int is_bare)
 	}
 	snprintf(head_path, strlen(git_dir_path) + strlen("/HEAD") + 1, "%s/HEAD", git_dir_path);
 	
-	int valid = directory_exists(objects_path) && 
-	           directory_exists(refs_path) && 
-	           file_exists(head_path);
+	int basic_valid = directory_exists(objects_path) && 
+	                 directory_exists(refs_path) && 
+	                 file_exists(head_path);
 	
 	free(git_dir_path);
 	free(objects_path);
 	free(refs_path);
 	free(head_path);
 	
-	return valid;
+	if (!basic_valid) {
+	    return 0;
+	}
+	
+	/* Perform deeper validation using git commands */
+	return validate_git_repository_integrity(repo_path, is_bare);
 }
 
 /* Safely remove directory with validation */
@@ -1178,6 +1342,14 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	snprintf(temp_path, strlen(repo->cache_path) + strlen(".tmp.") + 16,
 	         "%s.tmp.%ld", repo->cache_path, (long)now);
 	
+	/* Check available disk space before cloning (estimate 100MB minimum) */
+	if (!check_disk_space(parent_dir, 100)) {
+	    fprintf(stderr, "Warning: Low disk space detected in %s\n", parent_dir);
+	    if (config->verbose) {
+	        printf("Continuing with clone operation despite low disk space...\n");
+	    }
+	}
+	
 	/* Create new bare repository in temporary location */
 	const char *recursive_args = (config->recursive_submodules) ? " --recurse-submodules" : "";
 	size_t cmd_len = strlen("git clone --bare") + strlen(recursive_args) + strlen(" \"") + strlen(repo->original_url) + 
@@ -1200,8 +1372,25 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    printf("Executing: %s\n", clone_cmd);
 	}
 	
-	int result = run_git_command(clone_cmd, parent_dir);
+	/* Use enhanced network retry for clone operation */
+	char *full_cmd = malloc(strlen("cd \"") + strlen(parent_dir) + strlen("\" && ") + strlen(clone_cmd) + 1);
+	if (!full_cmd) {
+	    free(clone_cmd);
+	    free(parent_dir);
+	    free(temp_path);
+	    if (backup_path) {
+	        restore_from_backup(backup_path, repo->cache_path, config);
+	        free(backup_path);
+	    }
+	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
+	}
+	
+	snprintf(full_cmd, strlen("cd \"") + strlen(parent_dir) + strlen("\" && ") + strlen(clone_cmd) + 1,
+	         "cd \"%s\" && %s", parent_dir, clone_cmd);
+	
+	int result = retry_network_operation(full_cmd, 3, config);
 	free(clone_cmd);
+	free(full_cmd);
 	free(parent_dir);
 	
 	if (result != 0) {
