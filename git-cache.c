@@ -614,6 +614,7 @@ static int repo_info_setup_paths(struct repo_info *repo, const struct cache_conf
 }
 
 /* Git operation helpers - forward declarations */
+static int run_git_command(const char *command, const char *working_dir);
 static int scan_cache_directory(const char *cache_dir, const struct cache_config *config, 
 	                           const struct cache_options *options);
 static int create_reference_checkout(const char *cache_path, const char *checkout_path,
@@ -689,6 +690,52 @@ static int is_git_repository_at(const char *path)
 	return is_git_repo;
 }
 
+/* Simple progress indicator for long-running operations */
+static void show_progress_indicator(const char *operation, int show_spinner)
+{
+	static int spinner_pos = 0;
+	static const char spinner[] = "|/-\\";
+	
+	if (!operation) {
+		return;
+	}
+	
+	if (show_spinner) {
+		printf("\r%s %c", operation, spinner[spinner_pos]);
+		fflush(stdout);
+		spinner_pos = (spinner_pos + 1) % 4;
+	} else {
+		printf("\r%s... ", operation);
+		fflush(stdout);
+	}
+}
+
+/* Clear progress indicator line */
+static void clear_progress_indicator(void)
+{
+	printf("\r");
+	fflush(stdout);
+}
+
+/* Enhanced progress wrapper for git operations */
+static int run_git_command_with_progress(const char *cmd, const char *working_dir, const char *operation)
+{
+	if (!cmd || !operation) {
+		return -1;
+	}
+	
+	/* Show initial progress */
+	show_progress_indicator(operation, 0);
+	
+	/* For simple operations, just run the command */
+	int result = run_git_command(cmd, working_dir);
+	
+	/* Clear progress indicator */
+	clear_progress_indicator();
+	
+	return result;
+}
+
 /* Check available disk space for operations */
 static int check_disk_space(const char *path, size_t required_mb)
 {
@@ -734,8 +781,8 @@ static int check_disk_space(const char *path, size_t required_mb)
 	return (size_t)available_mb >= required_mb;
 }
 
-/* Retry network operation with exponential backoff */
-static int retry_network_operation(const char *cmd, int max_retries, const struct cache_config *config)
+/* Retry network operation with exponential backoff and progress */
+static int retry_network_operation_with_progress(const char *cmd, int max_retries, const struct cache_config *config, const char *operation)
 {
 	if (!cmd) {
 	    return -1;
@@ -747,10 +794,17 @@ static int retry_network_operation(const char *cmd, int max_retries, const struc
 	while (attempt < max_retries) {
 	    if (config->verbose && attempt > 0) {
 	        printf("Retrying network operation (attempt %d/%d)...\n", attempt + 1, max_retries);
+	    } else if (operation) {
+	        show_progress_indicator(operation, 0);
 	    }
 	    
 	    int result = system(cmd);
 	    int exit_code = WEXITSTATUS(result);
+	    
+	    /* Clear progress if shown */
+	    if (operation && (!config->verbose || attempt == 0)) {
+	        clear_progress_indicator();
+	    }
 	    
 	    /* Success */
 	    if (exit_code == 0) {
@@ -778,6 +832,7 @@ static int retry_network_operation(const char *cmd, int max_retries, const struc
 	
 	return -1; /* All retries failed */
 }
+
 
 /* Perform deep integrity validation using git commands */
 static int validate_git_repository_integrity(const char *repo_path, int is_bare)
@@ -1262,7 +1317,7 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	            }
 	            strcpy(fetch_cmd, "git fetch origin '+refs/heads/*:refs/heads/*' --prune");
 	            
-	            int result = run_git_command(fetch_cmd, repo->cache_path);
+	            int result = run_git_command_with_progress(fetch_cmd, repo->cache_path, "Updating cache repository");
 	            free(fetch_cmd);
 	            
 	            if (result != 0) {
@@ -1388,7 +1443,7 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	snprintf(full_cmd, strlen("cd \"") + strlen(parent_dir) + strlen("\" && ") + strlen(clone_cmd) + 1,
 	         "cd \"%s\" && %s", parent_dir, clone_cmd);
 	
-	int result = retry_network_operation(full_cmd, 3, config);
+	int result = retry_network_operation_with_progress(full_cmd, 3, config, "Cloning repository");
 	free(clone_cmd);
 	free(full_cmd);
 	free(parent_dir);
@@ -1604,7 +1659,7 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	            }
 	            strcpy(pull_cmd, "git pull --ff-only");
 	            
-	            int result = run_git_command(pull_cmd, checkout_path);
+	            int result = run_git_command_with_progress(pull_cmd, checkout_path, "Updating checkout repository");
 	            free(pull_cmd);
 	            
 	            if (result != 0) {
@@ -1872,6 +1927,11 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	const struct dirent *entry;
 	int repo_count = 0;
 	
+	/* Show scanning progress for list and sync operations */
+	if (options->operation == CACHE_OP_LIST || options->operation == CACHE_OP_SYNC) {
+	    show_progress_indicator("Scanning cache directory", 0);
+	}
+	
 	while ((entry = readdir(dir)) != NULL) {
 	    if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
 	        /* This is a user directory, scan for repositories */
@@ -2050,6 +2110,11 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	}
 	
 	closedir(dir);
+	
+	/* Clear scanning progress indicator */
+	if (options->operation == CACHE_OP_LIST || options->operation == CACHE_OP_SYNC) {
+	    clear_progress_indicator();
+	}
 	
 	if (repo_count == 0) {
 	    printf("  No cached repositories found\n");
@@ -2498,7 +2563,18 @@ static int cache_sync(const struct cache_options *options)
 	            }
 	            strcpy(fetch_cmd, "git fetch --all --prune");
 	            
-	            int fetch_result = run_git_command(fetch_cmd, repo_path);
+	            char *progress_msg = malloc(strlen("Syncing ") + strlen(owner_entry->d_name) + 
+	                                       strlen("/") + strlen(repo_entry->d_name) + 1);
+	            int fetch_result;
+	            if (progress_msg) {
+	                snprintf(progress_msg, strlen("Syncing ") + strlen(owner_entry->d_name) + 
+	                        strlen("/") + strlen(repo_entry->d_name) + 1,
+	                        "Syncing %s/%s", owner_entry->d_name, repo_entry->d_name);
+	                fetch_result = run_git_command_with_progress(fetch_cmd, repo_path, progress_msg);
+	                free(progress_msg);
+	            } else {
+	                fetch_result = run_git_command(fetch_cmd, repo_path);
+	            }
 	            free(fetch_cmd);
 	            
 	            if (fetch_result == 0) {
