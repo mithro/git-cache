@@ -4,6 +4,7 @@ LDFLAGS = -lcurl -ljson-c
 CACHE_TARGET = git-cache
 GITHUB_TARGET = github_test
 URL_TEST_TARGET = test_url_parsing
+FORK_TEST_TARGET = test_fork_integration
 CACHE_SOURCES = git-cache.c github_api.c
 GITHUB_SOURCES = github_api.c
 CACHE_OBJECTS = $(CACHE_SOURCES:.c=.o)
@@ -13,7 +14,7 @@ HEADERS = git-cache.h github_api.h
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
 
-.PHONY: all clean install uninstall github-test cache-test url-test-run robustness-test concurrent-test test-all clean-cache clean-all help
+.PHONY: all clean install uninstall github-test cache-test url-test-run fork-test-run robustness-test concurrent-test test-all clean-cache clean-all help
 
 all: $(CACHE_TARGET)
 
@@ -22,6 +23,8 @@ cache: $(CACHE_TARGET)
 github: $(GITHUB_TARGET)
 
 url-test: $(URL_TEST_TARGET)
+
+fork-test: $(FORK_TEST_TARGET)
 
 $(CACHE_TARGET): $(CACHE_OBJECTS)
 	$(CC) $(CACHE_OBJECTS) -o $@ $(LDFLAGS)
@@ -32,11 +35,14 @@ $(GITHUB_TARGET): $(GITHUB_OBJECTS) github_test.o
 $(URL_TEST_TARGET): github_api.o test_url_parsing.o
 	$(CC) github_api.o test_url_parsing.o -o $@ $(LDFLAGS)
 
+$(FORK_TEST_TARGET): test_fork_integration.o
+	$(CC) test_fork_integration.o -o $@
+
 %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET)
+	rm -f $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o test_fork_integration.o $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET) $(FORK_TEST_TARGET)
 
 clean-cache:
 	@echo "Cleaning cache and repository directories..."
@@ -99,6 +105,9 @@ cache-test: $(CACHE_TARGET)
 
 url-test-run: $(URL_TEST_TARGET)
 	./tests/run_url_tests.sh
+
+fork-test-run: $(FORK_TEST_TARGET)
+	./$(FORK_TEST_TARGET)
 
 robustness-test: $(CACHE_TARGET)
 	./tests/run_robustness_tests.sh
