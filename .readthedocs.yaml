@@ -9,11 +9,11 @@ build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
+  apt_packages:
+    - doxygen
+    - graphviz
+    - build-essential
   jobs:
-    pre_create_environment:
-      # Install system dependencies required for documentation building
-      - sudo apt-get update
-      - sudo apt-get install -y doxygen graphviz build-essential
     pre_build:
       # Create necessary directories and show available source files
       - mkdir -p docs/doxygen
