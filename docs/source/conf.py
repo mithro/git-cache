@@ -15,9 +15,26 @@ import glob
 def find_source_files():
     """Find C source and header files dynamically"""
     if on_rtd:
-        # ReadTheDocs working directory is project root
+        # ReadTheDocs: check both current directory and project root
+        print(f"ReadTheDocs current directory: {os.getcwd()}")
+        print(f"Files in current directory: {os.listdir('.')}")
+        
+        # Try current directory first
         c_files = glob.glob('*.c')
         h_files = glob.glob('*.h')
+        
+        # If no files found, try parent directories
+        if not c_files and not h_files:
+            # Try going up to project root
+            for parent_level in ['..', '../..', '../../..']:
+                test_path = os.path.join(parent_level, '*.c')
+                test_c = glob.glob(test_path)
+                if test_c:
+                    c_files = glob.glob(os.path.join(parent_level, '*.c'))
+                    h_files = glob.glob(os.path.join(parent_level, '*.h'))
+                    print(f"Found files in {parent_level}: {len(c_files + h_files)} files")
+                    break
+        
         base_path = '.'
     else:
         # Local development - files relative to docs/source
@@ -28,6 +45,8 @@ def find_source_files():
         c_files = [os.path.relpath(f, os.path.dirname(__file__)) for f in c_files]
         h_files = [os.path.relpath(f, os.path.dirname(__file__)) for f in h_files]
     
+    print(f"Raw files found: C={c_files}, H={h_files}")
+    
     # Filter out test files and other non-API files
     source_files = []
     for f in c_files + h_files:
@@ -35,6 +54,9 @@ def find_source_files():
         # Exclude only standalone test files, not core files with "test" in name
         if not basename.startswith('test_') and not basename.startswith('example_') and basename != 'github_test.c':
             source_files.append(f)
+            print(f"Including file: {f}")
+        else:
+            print(f"Excluding file: {f}")
     
     return source_files, base_path
 
