@@ -13,10 +13,12 @@ build:
     pre_create_environment:
       # Install system dependencies required for documentation building
       - sudo apt-get update
-      - sudo apt-get install -y doxygen graphviz
+      - sudo apt-get install -y doxygen graphviz build-essential
     pre_build:
-      # Create necessary directories
+      # Create necessary directories and show available source files
       - mkdir -p docs/doxygen
+      - echo "Available source files:"
+      - ls -la *.c *.h 2>/dev/null || echo "No source files found in root - API docs will be auto-detected"
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:

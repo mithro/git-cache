@@ -6,6 +6,48 @@ import os
 import sys
 from pathlib import Path
 
+# Check if we're building on ReadTheDocs
+on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
+
+# Dynamically discover source files for API documentation
+import glob
+
+def find_source_files():
+    """Find C source and header files dynamically"""
+    if on_rtd:
+        # ReadTheDocs working directory is project root
+        c_files = glob.glob('*.c')
+        h_files = glob.glob('*.h')
+        base_path = '.'
+    else:
+        # Local development - files relative to docs/source
+        base_path = os.path.join(os.path.dirname(__file__), '../..')
+        c_files = glob.glob(os.path.join(base_path, '*.c'))
+        h_files = glob.glob(os.path.join(base_path, '*.h'))
+        # Convert to relative paths for Doxygen
+        c_files = [os.path.relpath(f, os.path.dirname(__file__)) for f in c_files]
+        h_files = [os.path.relpath(f, os.path.dirname(__file__)) for f in h_files]
+    
+    # Filter out test files and other non-API files
+    source_files = []
+    for f in c_files + h_files:
+        basename = os.path.basename(f)
+        if not basename.startswith('test_') and not basename.startswith('example_'):
+            source_files.append(f)
+    
+    return source_files, base_path
+
+source_files, project_root = find_source_files()
+source_files_exist = len(source_files) > 0
+
+print(f"ReadTheDocs build: {on_rtd}")
+print(f"Found {len(source_files)} source files: {source_files}")
+print(f"Project root: {project_root}")
+
+if not source_files_exist:
+    print(f"Current directory: {os.getcwd()}")
+    print(f"Files in current directory: {os.listdir('.')}")
+
 # -- Project information -----------------------------------------------------
 project = 'git-cache'
 copyright = '2025, git-cache contributors'
@@ -24,11 +66,16 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.ifconfig',
     'sphinx.ext.githubpages',
-    'breathe',
-    'exhale',
     'sphinx_copybutton',
     'myst_parser',
 ]
+
+# Only add API documentation extensions if source files exist
+if source_files_exist:
+    extensions.extend(['breathe', 'exhale'])
+    print("API documentation enabled - source files found")
+else:
+    print("API documentation disabled - source files not found")
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -76,47 +123,51 @@ html_css_files = [
     'custom.css',
 ]
 
-# -- Breathe configuration ---------------------------------------------------
-# Tell breathe about the Doxygen output
-breathe_projects = {
-    "git-cache": "../doxygen/xml/"
-}
-breathe_default_project = "git-cache"
+# -- Conditional API documentation configuration -----------------------------
+if source_files_exist:
+    # -- Breathe configuration -----------------------------------------------
+    # Tell breathe about the Doxygen output
+    breathe_projects = {
+        "git-cache": "../doxygen/xml/"
+    }
+    breathe_default_project = "git-cache"
 
-# -- Exhale configuration ---------------------------------------------------
-# Setup the exhale extension
-exhale_args = {
-    # These arguments are required
-    "containmentFolder":     "./api",
-    "rootFileName":          "library_root.rst",
-    "rootFileTitle":         "API Reference",
-    "doxygenStripFromPath":  "..",
-    # Heavily encouraged optional argument (see docs)
-    "createTreeView":        True,
-    # TIP: if using the sphinx-bootstrap-theme, you need
-    # "treeViewIsBootstrap": True,
-    "exhaleExecutesDoxygen": True,
-    "exhaleDoxygenStdin":    "INPUT = ../../git-cache.h ../../github_api.h ../../git-cache.c ../../github_api.c\n"
-                            "EXTRACT_ALL = YES\n"
-                            "EXTRACT_PRIVATE = YES\n"
-                            "EXTRACT_STATIC = YES\n"
-                            "GENERATE_HTML = NO\n"
-                            "GENERATE_XML = YES\n"
-                            "XML_OUTPUT = xml\n"
-                            "RECURSIVE = YES\n"
-                            "ENABLE_PREPROCESSING = YES\n"
-                            "MACRO_EXPANSION = YES\n"
-                            "EXPAND_ONLY_PREDEF = NO\n"
-                            "SEARCH_INCLUDES = YES\n"
-                            "INCLUDE_PATH = ../../\n"
-                            "PREDEFINED = \"_GNU_SOURCE=1\" \"__attribute__(x)=\" \"static=\"\n"
-                            "EXCLUDE_PATTERNS = */build/* */docs/*\n"
-                            "FILE_PATTERNS = *.c *.h\n"
-                            "QUIET = YES\n"
-                            "WARNINGS = YES\n"
-                            "WARN_IF_UNDOCUMENTED = YES\n"
-                            "WARN_IF_DOC_ERROR = YES\n"
-}
+    # -- Exhale configuration ------------------------------------------------
+    # Setup the exhale extension
+    exhale_args = {
+        # These arguments are required
+        "containmentFolder":     "./api",
+        "rootFileName":          "library_root.rst",
+        "rootFileTitle":         "API Reference",
+        "doxygenStripFromPath":  "..",
+        # Heavily encouraged optional argument (see docs)
+        "createTreeView":        True,
+        # TIP: if using the sphinx-bootstrap-theme, you need
+        # "treeViewIsBootstrap": True,
+        "exhaleExecutesDoxygen": True,
+        "exhaleDoxygenStdin":    f"INPUT = {' '.join(source_files)}\n"
+                                "EXTRACT_ALL = YES\n"
+                                "EXTRACT_PRIVATE = YES\n"
+                                "EXTRACT_STATIC = YES\n"
+                                "GENERATE_HTML = NO\n"
+                                "GENERATE_XML = YES\n"
+                                "XML_OUTPUT = xml\n"
+                                "RECURSIVE = YES\n"
+                                "ENABLE_PREPROCESSING = YES\n"
+                                "MACRO_EXPANSION = YES\n"
+                                "EXPAND_ONLY_PREDEF = NO\n"
+                                "SEARCH_INCLUDES = YES\n"
+                                f"INCLUDE_PATH = {project_root}\n"
+                                "PREDEFINED += \"_GNU_SOURCE=1\" \"__attribute__(x)=\" \"static=\"\n"
+                                "EXCLUDE_PATTERNS = */build/* */docs/* */.git/* */test_*\n"
+                                "FILE_PATTERNS = *.c *.h\n"
+                                "QUIET = YES\n"
+                                "WARNINGS = NO\n"
+                                "WARN_IF_UNDOCUMENTED = NO\n"
+                                "WARN_IF_DOC_ERROR = NO\n"
+    }
+else:
+    print("Skipping API documentation - no source files found")
 
 # Tell sphinx what the primary language being documented is.
 primary_domain = 'c'
