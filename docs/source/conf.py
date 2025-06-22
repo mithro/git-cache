@@ -32,7 +32,8 @@ def find_source_files():
     source_files = []
     for f in c_files + h_files:
         basename = os.path.basename(f)
-        if not basename.startswith('test_') and not basename.startswith('example_'):
+        # Exclude only standalone test files, not core files with "test" in name
+        if not basename.startswith('test_') and not basename.startswith('example_') and basename != 'github_test.c':
             source_files.append(f)
     
     return source_files, base_path
