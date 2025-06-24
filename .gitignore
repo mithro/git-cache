@@ -89,7 +89,48 @@ core.*
 modules.order
 Module.symvers
 Mkfile.old
-dkms.confdocs/venv/
+dkms.conf
+
+# Documentation build artifacts
+docs/venv/
 docs/doxygen/
 docs/source/api/
 docs/build/
+docs/source/_build/
+
+# Python bytecode (for documentation tools)
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Package managers
+node_modules/
+.npm/
+.yarn/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage reports
+coverage/
+.nyc_output/
+.coverage
+htmlcov/
+
+# Dependency directories
+vendor/
+deps/
+
+# Lock files (optional - uncomment if you want to ignore them)
+# package-lock.json
+# yarn.lock
+# Cargo.lock
