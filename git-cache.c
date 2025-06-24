@@ -1175,7 +1175,9 @@ static pid_t read_lock_pid(const char *lock_path)
 	}
 	
 	pid_t pid = -1;
-	fscanf(f, "%d", &pid);
+	if (fscanf(f, "%d", &pid) != 1) {
+		pid = -1;
+	}
 	fclose(f);
 	
 	return pid;
@@ -1745,7 +1747,9 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	        if (cleanup_cmd) {
 	            snprintf(cleanup_cmd, strlen("rm -rf ") + strlen(cleanup_pattern) + 1,
 	                     "rm -rf %s", cleanup_pattern);
-	            system(cleanup_cmd);
+	            if (system(cleanup_cmd) != 0) {
+	                /* Cleanup failed, but continue - this is not critical */
+	            }
 	            free(cleanup_cmd);
 	        }
 	        free(cleanup_pattern);
