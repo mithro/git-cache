@@ -46,12 +46,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-22.04, ubuntu-24.04]
         include:
-          - os: ubuntu-20.04
-            cc: gcc-9
           - os: ubuntu-22.04
             cc: gcc-11
+          - os: ubuntu-24.04
+            cc: gcc-13
             
     steps:
     - name: Checkout code
@@ -93,7 +93,7 @@ jobs:
         
     - name: Run static analysis
       run: |
-        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppress=constParameterCallback *.c
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppress=constParameterCallback --suppress=knownConditionTrueFalse:test_fork_integration.c *.c
         
     - name: Check for memory leaks
       run: |

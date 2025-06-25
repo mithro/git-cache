@@ -1203,7 +1203,7 @@ static int acquire_lock(const char *resource_path, const struct cache_config *co
 	}
 	
 	int attempts = 0;
-	int lock_fd = -1;
+	int lock_fd;
 	
 	while (attempts < LOCK_MAX_ATTEMPTS) {
 	    /* Try to create lock file exclusively */
@@ -2019,7 +2019,7 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                                struct stat st;
 	                                if (stat(head_path, &st) == 0) {
 	                                    char time_buf[64];
-	                                    struct tm *tm_info = localtime(&st.st_mtime);
+	                                    const struct tm *tm_info = localtime(&st.st_mtime);
 	                                    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
 	                                    printf("\n    Last sync: %s", time_buf);
 	                                }
@@ -2525,7 +2525,7 @@ static int cache_sync(const struct cache_options *options)
 	    return CACHE_ERROR_FILESYSTEM;
 	}
 	
-	struct dirent *owner_entry;
+	const struct dirent *owner_entry;
 	while ((owner_entry = readdir(github_dir)) != NULL) {
 	    if (strcmp(owner_entry->d_name, ".") == 0 || strcmp(owner_entry->d_name, "..") == 0) {
 	        continue;
@@ -2549,7 +2549,7 @@ static int cache_sync(const struct cache_options *options)
 	        continue;
 	    }
 	    
-	    struct dirent *repo_entry;
+	    const struct dirent *repo_entry;
 	    while ((repo_entry = readdir(owner_dir)) != NULL) {
 	        if (strcmp(repo_entry->d_name, ".") == 0 || strcmp(repo_entry->d_name, "..") == 0) {
 	            continue;
