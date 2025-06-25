@@ -15,6 +15,7 @@
 
 #include "git-cache.h"
 #include "github_api.h"
+#include "submodule.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -517,7 +518,7 @@ static struct repo_info* repo_info_create(void)
 }
 
 /* Destroy repository information structure */
-static void repo_info_destroy(struct repo_info *repo)
+void repo_info_destroy(struct repo_info *repo)
 {
 	if (!repo) {
 	    return;
@@ -535,7 +536,7 @@ static void repo_info_destroy(struct repo_info *repo)
 }
 
 /* Parse repository URL and extract information */
-static int repo_info_parse_url(const char *url, struct repo_info *repo)
+int repo_info_parse_url(const char *url, struct repo_info *repo)
 {
 	if (!url || !repo) {
 	    return CACHE_ERROR_ARGS;
@@ -2303,6 +2304,18 @@ static int cache_clone_repository(const char *url, const struct cache_options *o
 	    repo_info_destroy(repo);
 	    cache_config_destroy(config);
 	    return ret;
+	}
+	
+	/* Step 4: Process submodules if requested */
+	if (config->recursive_submodules) {
+	    if (options->verbose) {
+	        printf("Processing submodules...\n");
+	    }
+	    ret = process_submodules(repo, config, 1);
+	    if (ret != 0) {
+	        fprintf(stderr, "Warning: Some submodules failed to process\n");
+	        /* Continue anyway - main clone succeeded */
+	    }
 	}
 	
 	if (options->verbose) {

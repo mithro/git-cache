@@ -126,6 +126,20 @@ struct cache_options {
  */
 void print_usage(const char *program_name);
 
+/**
+ * @brief Parse repository URL and extract information
+ * @param url Repository URL to parse
+ * @param repo Repository info structure to populate
+ * @return 0 on success, error code on failure
+ */
+int repo_info_parse_url(const char *url, struct repo_info *repo);
+
+/**
+ * @brief Destroy repository information structure
+ * @param repo Repository info to destroy
+ */
+void repo_info_destroy(struct repo_info *repo);
+
 /** @} */
 
 /**
