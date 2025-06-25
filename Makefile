@@ -6,11 +6,11 @@ GITHUB_TARGET = github_test
 URL_TEST_TARGET = test_url_parsing
 FORK_TEST_TARGET = test_fork_integration
 SUBMODULE_TEST_TARGET = test_submodule
-CACHE_SOURCES = git-cache.c github_api.c submodule.c
+CACHE_SOURCES = git-cache.c github_api.c submodule.c cache_recovery.c
 GITHUB_SOURCES = github_api.c
 CACHE_OBJECTS = $(CACHE_SOURCES:.c=.o)
 GITHUB_OBJECTS = $(GITHUB_SOURCES:.c=.o)
-HEADERS = git-cache.h github_api.h submodule.h
+HEADERS = git-cache.h github_api.h submodule.h cache_recovery.h
 
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin

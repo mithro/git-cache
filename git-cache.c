@@ -16,6 +16,7 @@
 #include "git-cache.h"
 #include "github_api.h"
 #include "submodule.h"
+#include "cache_recovery.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -42,6 +43,7 @@ void print_usage(const char *program_name)
 	printf("    clean              Clean cache\n");
 	printf("    sync               Synchronize cache with remotes\n");
 	printf("    list               List cached repositories\n");
+	printf("    verify [url]       Verify cache integrity and repair if needed\n");
 	printf("\n");
 	printf("Options:\n");
 	printf("    -h, --help         Show this help message\n");
@@ -126,6 +128,14 @@ static int parse_arguments(int argc, char *argv[], struct cache_options *options
 	} else if (strcmp(argv[i], "list") == 0) {
 	    options->operation = CACHE_OP_LIST;
 	    i++;
+	} else if (strcmp(argv[i], "verify") == 0) {
+	    options->operation = CACHE_OP_VERIFY;
+	    i++;
+	    /* Optional URL argument for verify */
+	    if (i < argc && argv[i][0] != '-') {
+	        options->url = argv[i];
+	        i++;
+	    }
 	} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 	    options->help = 1;
 	    return CACHE_SUCCESS;
@@ -2701,6 +2711,130 @@ static int cache_list(const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
+static int cache_verify(const struct cache_options *options)
+{
+	/* Create and load configuration */
+	struct cache_config *config = cache_config_create();
+	if (!config) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	cache_config_load(config);
+	
+	if (options->url) {
+	    /* Verify specific repository */
+	    struct repo_info *repo = repo_info_create();
+	    if (!repo) {
+	        cache_config_destroy(config);
+	        return CACHE_ERROR_MEMORY;
+	    }
+	    
+	    if (repo_info_parse_url(options->url, repo) != 0) {
+	        printf("Invalid URL: %s\n", options->url);
+	        repo_info_destroy(repo);
+	        cache_config_destroy(config);
+	        return CACHE_ERROR_ARGS;
+	    }
+	    
+	    repo_info_setup_paths(repo, config);
+	    
+	    printf("Verifying repository: %s\n", options->url);
+	    int result = verify_and_repair_repository(repo, config);
+	    
+	    if (result == CACHE_RECOVERY_OK) {
+	        printf("Repository verification complete: all components are valid\n");
+	    } else {
+	        printf("Repository verification failed: %s\n", cache_recovery_error_string(result));
+	    }
+	    
+	    repo_info_destroy(repo);
+	    cache_config_destroy(config);
+	    return (result == CACHE_RECOVERY_OK) ? CACHE_SUCCESS : CACHE_ERROR_FILESYSTEM;
+	} else {
+	    /* Verify all cached repositories */
+	    printf("Verifying all cached repositories...\n");
+	    
+	    char cache_base[4096];
+	    char *home = getenv("HOME");
+	    if (!home) {
+	        cache_config_destroy(config);
+	        return CACHE_ERROR_CONFIG;
+	    }
+	    
+	    snprintf(cache_base, sizeof(cache_base), "%s/%s", home, CACHE_BASE_DIR);
+	    
+	    /* Verify cache directory exists */
+	    if (access(cache_base, F_OK) != 0) {
+	        printf("No cache directory found at: %s\n", cache_base);
+	        cache_config_destroy(config);
+	        return CACHE_SUCCESS;
+	    }
+	    
+	    /* Walk through cache directory and verify each repository */
+	    char github_path[4096];
+	    snprintf(github_path, sizeof(github_path), "%s/github.com", cache_base);
+	    
+	    DIR *github_dir = opendir(github_path);
+	    if (!github_dir) {
+	        printf("No GitHub repositories cached\n");
+	        cache_config_destroy(config);
+	        return CACHE_SUCCESS;
+	    }
+	    
+	    int total_repos = 0;
+	    int corrupted_repos = 0;
+	    
+	    const struct dirent *owner_entry;
+	    while ((owner_entry = readdir(github_dir)) != NULL) {
+	        if (strcmp(owner_entry->d_name, ".") == 0 || strcmp(owner_entry->d_name, "..") == 0) {
+	            continue;
+	        }
+	        
+	        char owner_path[4096];
+	        snprintf(owner_path, sizeof(owner_path), "%s/%s", github_path, owner_entry->d_name);
+	        
+	        DIR *owner_dir = opendir(owner_path);
+	        if (!owner_dir) {
+	            continue;
+	        }
+	        
+	        const struct dirent *repo_entry;
+	        while ((repo_entry = readdir(owner_dir)) != NULL) {
+	            if (strcmp(repo_entry->d_name, ".") == 0 || strcmp(repo_entry->d_name, "..") == 0) {
+	                continue;
+	            }
+	            
+	            char repo_path[4096];
+	            snprintf(repo_path, sizeof(repo_path), "%s/%s", owner_path, repo_entry->d_name);
+	            
+	            total_repos++;
+	            printf("Checking: %s/%s... ", owner_entry->d_name, repo_entry->d_name);
+	            
+	            int status = verify_cache_repository(repo_path);
+	            if (status == CACHE_RECOVERY_OK) {
+	                printf("OK\n");
+	            } else {
+	                corrupted_repos++;
+	                printf("CORRUPTED (%s)\n", cache_recovery_error_string(status));
+	            }
+	        }
+	        closedir(owner_dir);
+	    }
+	    closedir(github_dir);
+	    
+	    printf("\nVerification Summary:\n");
+	    printf("  Total repositories: %d\n", total_repos);
+	    printf("  Corrupted repositories: %d\n", corrupted_repos);
+	    
+	    if (corrupted_repos > 0) {
+	        printf("\nUse 'git-cache verify <url>' to repair specific repositories\n");
+	    }
+	    
+	    cache_config_destroy(config);
+	    return (corrupted_repos == 0) ? CACHE_SUCCESS : CACHE_ERROR_FILESYSTEM;
+	}
+}
+
 /* Main function */
 int main(int argc, char *argv[])
 {
@@ -2749,6 +2883,9 @@ int main(int argc, char *argv[])
 	        break;
 	    case CACHE_OP_LIST:
 	        ret = cache_list(&options);
+	        break;
+	    case CACHE_OP_VERIFY:
+	        ret = cache_verify(&options);
 	        break;
 	    default:
 	        fprintf(stderr, "error: unknown operation\n");

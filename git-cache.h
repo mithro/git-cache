@@ -56,7 +56,8 @@ enum cache_operation {
 	CACHE_OP_STATUS, /**< Show cache status */
 	CACHE_OP_CLEAN,  /**< Clean cache */
 	CACHE_OP_SYNC,   /**< Synchronize cache with remotes */
-	CACHE_OP_LIST    /**< List cached repositories */
+	CACHE_OP_LIST,   /**< List cached repositories */
+	CACHE_OP_VERIFY  /**< Verify cache integrity */
 };
 
 /**
