@@ -211,7 +211,7 @@ int repair_cache_repository(const char *cache_path, const char *original_url, in
  * @brief Repair a checkout repository by recreating it from cache
  */
 int repair_checkout_repository(const char *checkout_path, const char *cache_path, 
-                              enum clone_strategy strategy, int verbose)
+	                          enum clone_strategy strategy, int verbose)
 {
 	if (!checkout_path || !cache_path) {
 		return CACHE_RECOVERY_INVALID_PATH;

@@ -2771,7 +2771,7 @@ static int cache_verify(const struct cache_options *options)
 	    }
 	    
 	    /* Walk through cache directory and verify each repository */
-	    char github_path[4096];
+	    char github_path[8192];
 	    snprintf(github_path, sizeof(github_path), "%s/github.com", cache_base);
 	    
 	    DIR *github_dir = opendir(github_path);
@@ -2790,7 +2790,7 @@ static int cache_verify(const struct cache_options *options)
 	            continue;
 	        }
 	        
-	        char owner_path[4096];
+	        char owner_path[8192];
 	        snprintf(owner_path, sizeof(owner_path), "%s/%s", github_path, owner_entry->d_name);
 	        
 	        DIR *owner_dir = opendir(owner_path);
@@ -2804,7 +2804,7 @@ static int cache_verify(const struct cache_options *options)
 	                continue;
 	            }
 	            
-	            char repo_path[4096];
+	            char repo_path[8192];
 	            snprintf(repo_path, sizeof(repo_path), "%s/%s", owner_path, repo_entry->d_name);
 	            
 	            total_repos++;
