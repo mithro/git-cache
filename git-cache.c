@@ -1203,11 +1203,10 @@ static int acquire_lock(const char *resource_path, const struct cache_config *co
 	}
 	
 	int attempts = 0;
-	int lock_fd;
 	
 	while (attempts < LOCK_MAX_ATTEMPTS) {
 	    /* Try to create lock file exclusively */
-	    lock_fd = open(lock_path, O_CREAT | O_EXCL | O_WRONLY, 0644);
+	    int lock_fd = open(lock_path, O_CREAT | O_EXCL | O_WRONLY, 0644);
 	    
 	    if (lock_fd >= 0) {
 	        /* Successfully created lock file */

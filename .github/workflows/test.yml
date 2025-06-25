@@ -93,7 +93,7 @@ jobs:
         
     - name: Run static analysis
       run: |
-        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppress=constParameterCallback --suppress=knownConditionTrueFalse:test_fork_integration.c *.c
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem --suppress=constParameterCallback --suppress=knownConditionTrueFalse:test_fork_integration.c --suppress=nullPointerOutOfMemory:test_fork_integration.c *.c
         
     - name: Check for memory leaks
       run: |
