@@ -6,11 +6,12 @@ GITHUB_TARGET = github_test
 URL_TEST_TARGET = test_url_parsing
 FORK_TEST_TARGET = test_fork_integration
 SUBMODULE_TEST_TARGET = test_submodule
-CACHE_SOURCES = git-cache.c github_api.c submodule.c cache_recovery.c
+METADATA_TEST_TARGET = test_cache_metadata
+CACHE_SOURCES = git-cache.c github_api.c submodule.c cache_recovery.c cache_metadata.c
 GITHUB_SOURCES = github_api.c
 CACHE_OBJECTS = $(CACHE_SOURCES:.c=.o)
 GITHUB_OBJECTS = $(GITHUB_SOURCES:.c=.o)
-HEADERS = git-cache.h github_api.h submodule.h cache_recovery.h
+HEADERS = git-cache.h github_api.h submodule.h cache_recovery.h cache_metadata.h
 
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
@@ -29,6 +30,8 @@ fork-test: $(FORK_TEST_TARGET)
 
 submodule-test: $(SUBMODULE_TEST_TARGET)
 
+metadata-test: $(METADATA_TEST_TARGET)
+
 $(CACHE_TARGET): $(CACHE_OBJECTS)
 	$(CC) $(CACHE_OBJECTS) -o $@ $(LDFLAGS)
 
@@ -44,11 +47,14 @@ $(FORK_TEST_TARGET): test_fork_integration.o
 $(SUBMODULE_TEST_TARGET): test_submodule.o submodule.o repo_info_stub.o
 	$(CC) test_submodule.o submodule.o repo_info_stub.o -o $@
 
+$(METADATA_TEST_TARGET): test_cache_metadata.o cache_metadata.o metadata_test_stub.o
+	$(CC) test_cache_metadata.o cache_metadata.o metadata_test_stub.o -o $@ $(LDFLAGS)
+
 %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o test_fork_integration.o test_submodule.o submodule.o $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET) $(FORK_TEST_TARGET) $(SUBMODULE_TEST_TARGET)
+	rm -f $(CACHE_OBJECTS) $(GITHUB_OBJECTS) github_test.o test_url_parsing.o test_fork_integration.o test_submodule.o submodule.o test_cache_metadata.o metadata_test_stub.o $(CACHE_TARGET) $(GITHUB_TARGET) $(URL_TEST_TARGET) $(FORK_TEST_TARGET) $(SUBMODULE_TEST_TARGET) $(METADATA_TEST_TARGET)
 
 clean-cache:
 	@echo "Cleaning cache and repository directories..."

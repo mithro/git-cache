@@ -17,6 +17,7 @@
 #include "github_api.h"
 #include "submodule.h"
 #include "cache_recovery.h"
+#include "cache_metadata.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -1339,6 +1340,16 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	                }
 	                /* Don't fail if fetch fails - the cache might still be usable */
 	                printf("Note: Using existing cache (fetch failed but cache is still valid)\n");
+	            } else {
+	                /* Update metadata sync time after successful fetch */
+	                int metadata_ret = cache_metadata_update_sync(repo->cache_path);
+	                if (metadata_ret != METADATA_SUCCESS) {
+	                    if (config->verbose) {
+	                        printf("Warning: Failed to update cache metadata sync time (error %d)\n", metadata_ret);
+	                    }
+	                } else if (config->verbose) {
+	                    printf("Cache metadata sync time updated\n");
+	                }
 	            }
 	            
 	            RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_SUCCESS);
@@ -1543,6 +1554,72 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    free(backup_path);
 	}
 	
+	/* Save metadata for newly cached repository */
+	struct cache_metadata *metadata = cache_metadata_create(repo);
+	if (metadata) {
+	    /* Update sync time since we just cloned/created the repository */
+	    metadata->last_sync_time = time(NULL);
+	    
+	    /* Calculate and store cache size */
+	    metadata->cache_size = cache_metadata_calculate_size(repo->cache_path);
+	    
+	    /* Check if repository has submodules */
+	    char *submodule_check_cmd = malloc(strlen("cd \"") + strlen(repo->cache_path) + 
+	                                      strlen("\" && git submodule status --quiet 2>/dev/null | wc -l") + 1);
+	    if (submodule_check_cmd) {
+	        snprintf(submodule_check_cmd, strlen("cd \"") + strlen(repo->cache_path) + 
+	                 strlen("\" && git submodule status --quiet 2>/dev/null | wc -l") + 1,
+	                 "cd \"%s\" && git submodule status --quiet 2>/dev/null | wc -l", repo->cache_path);
+	        
+	        FILE *pipe = popen(submodule_check_cmd, "r");
+	        if (pipe) {
+	            char buffer[32];
+	            if (fgets(buffer, sizeof(buffer), pipe)) {
+	                int submodule_count = atoi(buffer);
+	                metadata->has_submodules = (submodule_count > 0);
+	            }
+	            pclose(pipe);
+	        }
+	        free(submodule_check_cmd);
+	    }
+	    
+	    /* Get default branch */
+	    char *branch_cmd = malloc(strlen("cd \"") + strlen(repo->cache_path) + 
+	                             strlen("\" && git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||'") + 1);
+	    if (branch_cmd) {
+	        snprintf(branch_cmd, strlen("cd \"") + strlen(repo->cache_path) + 
+	                 strlen("\" && git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||'") + 1,
+	                 "cd \"%s\" && git symbolic-ref HEAD 2>/dev/null | sed 's|refs/heads/||'", repo->cache_path);
+	        
+	        FILE *pipe = popen(branch_cmd, "r");
+	        if (pipe) {
+	            char buffer[256];
+	            if (fgets(buffer, sizeof(buffer), pipe)) {
+	                /* Remove trailing newline */
+	                size_t len = strlen(buffer);
+	                if (len > 0 && buffer[len-1] == '\n') {
+	                    buffer[len-1] = '\0';
+	                }
+	                metadata->default_branch = strdup(buffer);
+	            }
+	            pclose(pipe);
+	        }
+	        free(branch_cmd);
+	    }
+	    
+	    /* Save metadata */
+	    int metadata_ret = cache_metadata_save(repo->cache_path, metadata);
+	    if (metadata_ret != METADATA_SUCCESS) {
+	        if (config->verbose) {
+	            printf("Warning: Failed to save cache metadata (error %d)\n", metadata_ret);
+	        }
+	    } else if (config->verbose) {
+	        printf("Cache metadata saved successfully\n");
+	    }
+	    
+	    cache_metadata_destroy(metadata);
+	}
+	
 	if (config->verbose) {
 	    printf("Cache repository created successfully\n");
 	}
@@ -1698,6 +1775,10 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	                    printf("Warning: Pull failed with exit code %d, but checkout is still valid\n", result);
 	                }
 	            }
+	            
+	            /* Update metadata - update access time for existing checkout */
+	            cache_metadata_update_access(cache_path);
+	            
 	            RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_SUCCESS);
 	        } else {
 	            /* Repository exists but is corrupted - back it up and recreate */
@@ -1940,6 +2021,9 @@ static int create_reference_checkout(const char *cache_path, const char *checkou
 	    printf("Reference checkout created successfully\n");
 	}
 	
+	/* Update metadata - increment reference count and update access time */
+	cache_metadata_increment_ref(cache_path);
+	
 	RETURN_WITH_LOCK_CLEANUP(checkout_path, CACHE_SUCCESS);
 }
 
@@ -1959,6 +2043,9 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	
 	const struct dirent *entry;
 	int repo_count = 0;
+	size_t total_cache_size = 0;
+	int total_checkouts = 0;
+	int strategy_counts[4] = {0}; /* full, shallow, treeless, blobless */
 	
 	/* Show scanning progress for list and sync operations */
 	if (options->operation == CACHE_OP_LIST || options->operation == CACHE_OP_SYNC) {
@@ -1998,42 +2085,169 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                        repo_count++;
 	                        printf("  %s/%s", entry->d_name, repo_entry->d_name);
 	                        
+	                        /* Load metadata once for both verbose and non-verbose modes */
+	                        struct cache_metadata metadata = {0};
+	                        int has_metadata = (cache_metadata_load(repo_path, &metadata) == METADATA_SUCCESS);
+	                        
+	                        /* Update statistics */
+	                        if (has_metadata) {
+	                            total_cache_size += metadata.cache_size;
+	                            total_checkouts += metadata.ref_count;
+	                            if (metadata.strategy >= CLONE_STRATEGY_FULL && metadata.strategy <= CLONE_STRATEGY_BLOBLESS) {
+	                                strategy_counts[metadata.strategy]++;
+	                            }
+	                        }
+	                        
+	                        if (!options->verbose) {
+	                            if (has_metadata) {
+	                                /* Show basic metadata in non-verbose mode */
+	                                if (metadata.cache_size > 0) {
+	                                    double size_mb = metadata.cache_size / (1024.0 * 1024.0);
+	                                    if (size_mb < 1024.0) {
+	                                        printf(" (%.1fM", size_mb);
+	                                    } else {
+	                                        printf(" (%.1fG", size_mb / 1024.0);
+	                                    }
+	                                } else {
+	                                    printf(" (?");
+	                                }
+	                                
+	                                printf(", %s", 
+	                                       metadata.strategy == CLONE_STRATEGY_FULL ? "full" :
+	                                       metadata.strategy == CLONE_STRATEGY_SHALLOW ? "shallow" :
+	                                       metadata.strategy == CLONE_STRATEGY_TREELESS ? "treeless" :
+	                                       metadata.strategy == CLONE_STRATEGY_BLOBLESS ? "blobless" : "unknown");
+	                                
+	                                if (metadata.ref_count > 0) {
+	                                    printf(", %d checkout%s", metadata.ref_count, 
+	                                           metadata.ref_count == 1 ? "" : "s");
+	                                }
+	                                
+	                                printf(")");
+	                            }
+	                        }
+	                        
 	                        if (options->verbose) {
 	                            /* Show detailed repository information */
 	                            printf("\n    Cache path: %s", repo_path);
 	                            
 	                            /* Get repository size */
-	                            char *du_cmd = malloc(strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1);
-	                            if (du_cmd) {
-	                                snprintf(du_cmd, strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1,
-	                                         "du -sh \"%s\" 2>/dev/null | cut -f1", repo_path);
-	                                
-	                                FILE *pipe = popen(du_cmd, "r");
-	                                if (pipe) {
-	                                    char size_buf[32];
-	                                    if (fgets(size_buf, sizeof(size_buf), pipe)) {
-	                                        /* Remove newline */
-	                                        char *newline = strchr(size_buf, '\n');
-	                                        if (newline) *newline = '\0';
-	                                        printf("\n    Size: %s", size_buf);
-	                                    }
-	                                    pclose(pipe);
+	                            if (has_metadata && metadata.cache_size > 0) {
+	                                /* Use cached size from metadata */
+	                                double size_mb = metadata.cache_size / (1024.0 * 1024.0);
+	                                if (size_mb < 1024.0) {
+	                                    printf("\n    Size: %.1fM", size_mb);
+	                                } else {
+	                                    printf("\n    Size: %.1fG", size_mb / 1024.0);
 	                                }
-	                                free(du_cmd);
+	                            } else {
+	                                /* Fall back to du command */
+	                                char *du_cmd = malloc(strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1);
+	                                if (du_cmd) {
+	                                    snprintf(du_cmd, strlen("du -sh \"") + strlen(repo_path) + strlen("\" 2>/dev/null | cut -f1") + 1,
+	                                             "du -sh \"%s\" 2>/dev/null | cut -f1", repo_path);
+	                                    
+	                                    FILE *pipe = popen(du_cmd, "r");
+	                                    if (pipe) {
+	                                        char size_buf[32];
+	                                        if (fgets(size_buf, sizeof(size_buf), pipe)) {
+	                                            /* Remove newline */
+	                                            char *newline = strchr(size_buf, '\n');
+	                                            if (newline) *newline = '\0';
+	                                            printf("\n    Size: %s", size_buf);
+	                                        }
+	                                        pclose(pipe);
+	                                    }
+	                                    free(du_cmd);
+	                                }
 	                            }
 	                            
-	                            /* Get last sync time from HEAD modification time */
-	                            char *head_path = malloc(strlen(repo_path) + strlen("/HEAD") + 1);
-	                            if (head_path) {
-	                                snprintf(head_path, strlen(repo_path) + strlen("/HEAD") + 1, "%s/HEAD", repo_path);
-	                                struct stat st;
-	                                if (stat(head_path, &st) == 0) {
-	                                    char time_buf[64];
-	                                    const struct tm *tm_info = localtime(&st.st_mtime);
+	                            /* Get sync and access times */
+	                            if (has_metadata) {
+	                                /* Show metadata information */
+	                                char time_buf[64];
+	                                const struct tm *tm_info;
+	                                
+	                                /* Creation time */
+	                                if (metadata.created_time > 0) {
+	                                    tm_info = localtime(&metadata.created_time);
+	                                    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+	                                    printf("\n    Created: %s", time_buf);
+	                                }
+	                                
+	                                /* Last sync time */
+	                                if (metadata.last_sync_time > 0) {
+	                                    tm_info = localtime(&metadata.last_sync_time);
 	                                    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
 	                                    printf("\n    Last sync: %s", time_buf);
+	                                } else {
+	                                    /* Fall back to HEAD modification time */
+	                                    char *head_path = malloc(strlen(repo_path) + strlen("/HEAD") + 1);
+	                                    if (head_path) {
+	                                        snprintf(head_path, strlen(repo_path) + strlen("/HEAD") + 1, "%s/HEAD", repo_path);
+	                                        struct stat st;
+	                                        if (stat(head_path, &st) == 0) {
+	                                            tm_info = localtime(&st.st_mtime);
+	                                            strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+	                                            printf("\n    Last sync: %s", time_buf);
+	                                        }
+	                                        free(head_path);
+	                                    }
 	                                }
-	                                free(head_path);
+	                                
+	                                /* Last access time */
+	                                if (metadata.last_access_time > 0) {
+	                                    tm_info = localtime(&metadata.last_access_time);
+	                                    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+	                                    printf("\n    Last access: %s", time_buf);
+	                                }
+	                                
+	                                /* Clone strategy */
+	                                printf("\n    Clone strategy: %s",
+	                                       metadata.strategy == CLONE_STRATEGY_FULL ? "full" :
+	                                       metadata.strategy == CLONE_STRATEGY_SHALLOW ? "shallow" :
+	                                       metadata.strategy == CLONE_STRATEGY_TREELESS ? "treeless" :
+	                                       metadata.strategy == CLONE_STRATEGY_BLOBLESS ? "blobless" : "unknown");
+	                                
+	                                /* Reference count */
+	                                printf("\n    Active checkouts: %d", metadata.ref_count);
+	                                
+	                                /* Repository type */
+	                                if (metadata.type != REPO_TYPE_UNKNOWN) {
+	                                    printf("\n    Type: %s",
+	                                           metadata.type == REPO_TYPE_GITHUB ? "GitHub" : "unknown");
+	                                }
+	                                
+	                                /* Fork information */
+	                                if (metadata.is_fork_needed) {
+	                                    printf("\n    Fork: %s (%s)",
+	                                           metadata.fork_organization ? metadata.fork_organization : "yes",
+	                                           metadata.is_private_fork ? "private" : "public");
+	                                }
+	                                
+	                                /* Submodules */
+	                                if (metadata.has_submodules) {
+	                                    printf("\n    Has submodules: yes");
+	                                }
+	                                
+	                                /* Default branch */
+	                                if (metadata.default_branch && strlen(metadata.default_branch) > 0) {
+	                                    printf("\n    Default branch: %s", metadata.default_branch);
+	                                }
+	                            } else {
+	                                /* Fall back to HEAD modification time only */
+	                                char *head_path = malloc(strlen(repo_path) + strlen("/HEAD") + 1);
+	                                if (head_path) {
+	                                    snprintf(head_path, strlen(repo_path) + strlen("/HEAD") + 1, "%s/HEAD", repo_path);
+	                                    struct stat st;
+	                                    if (stat(head_path, &st) == 0) {
+	                                        char time_buf[64];
+	                                        const struct tm *tm_info = localtime(&st.st_mtime);
+	                                        strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm_info);
+	                                        printf("\n    Last sync: %s", time_buf);
+	                                    }
+	                                    free(head_path);
+	                                }
 	                            }
 	                            
 	                            /* Get remote URL */
@@ -2131,6 +2345,16 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	                            }
 	                        }
 	                        printf("\n");
+	                        
+	                        /* Clean up metadata for all cases */
+	                        if (has_metadata) {
+	                            if (metadata.original_url) free(metadata.original_url);
+	                            if (metadata.fork_url) free(metadata.fork_url);
+	                            if (metadata.owner) free(metadata.owner);
+	                            if (metadata.name) free(metadata.name);
+	                            if (metadata.fork_organization) free(metadata.fork_organization);
+	                            if (metadata.default_branch) free(metadata.default_branch);
+	                        }
 	                    }
 	                    
 	                    free(repo_path);
@@ -2152,7 +2376,36 @@ static int scan_cache_directory(const char *cache_dir, const struct cache_config
 	if (repo_count == 0) {
 	    printf("  No cached repositories found\n");
 	} else {
-	    printf("  Total: %d cached repositories\n", repo_count);
+	    printf("\nSummary:\n");
+	    printf("  Total repositories: %d\n", repo_count);
+	    
+	    /* Show total cache size */
+	    if (total_cache_size > 0) {
+	        double size_mb = total_cache_size / (1024.0 * 1024.0);
+	        if (size_mb < 1024.0) {
+	            printf("  Total cache size: %.1fM\n", size_mb);
+	        } else {
+	            printf("  Total cache size: %.1fG\n", size_mb / 1024.0);
+	        }
+	    }
+	    
+	    /* Show checkout count */
+	    if (total_checkouts > 0) {
+	        printf("  Active checkouts: %d\n", total_checkouts);
+	    }
+	    
+	    /* Show strategy breakdown */
+	    if (strategy_counts[0] + strategy_counts[1] + strategy_counts[2] + strategy_counts[3] > 0) {
+	        printf("  Clone strategies:\n");
+	        if (strategy_counts[CLONE_STRATEGY_FULL] > 0)
+	            printf("    Full: %d\n", strategy_counts[CLONE_STRATEGY_FULL]);
+	        if (strategy_counts[CLONE_STRATEGY_SHALLOW] > 0)
+	            printf("    Shallow: %d\n", strategy_counts[CLONE_STRATEGY_SHALLOW]);
+	        if (strategy_counts[CLONE_STRATEGY_TREELESS] > 0)
+	            printf("    Treeless: %d\n", strategy_counts[CLONE_STRATEGY_TREELESS]);
+	        if (strategy_counts[CLONE_STRATEGY_BLOBLESS] > 0)
+	            printf("    Blobless: %d\n", strategy_counts[CLONE_STRATEGY_BLOBLESS]);
+	    }
 	}
 	
 	return CACHE_SUCCESS;
