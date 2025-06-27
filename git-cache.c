@@ -18,6 +18,7 @@
 #include "submodule.h"
 #include "cache_recovery.h"
 #include "cache_metadata.h"
+#include "checkout_repair.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -45,6 +46,7 @@ void print_usage(const char *program_name)
 	printf("    sync               Synchronize cache with remotes\n");
 	printf("    list               List cached repositories\n");
 	printf("    verify [url]       Verify cache integrity and repair if needed\n");
+	printf("    repair             Repair outdated checkouts\n");
 	printf("\n");
 	printf("Options:\n");
 	printf("    -h, --help         Show this help message\n");
@@ -137,6 +139,9 @@ static int parse_arguments(int argc, char *argv[], struct cache_options *options
 	        options->url = argv[i];
 	        i++;
 	    }
+	} else if (strcmp(argv[i], "repair") == 0) {
+	    options->operation = CACHE_OP_REPAIR;
+	    i++;
 	} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 	    options->help = 1;
 	    return CACHE_SUCCESS;
@@ -2907,6 +2912,24 @@ static int cache_sync(const struct cache_options *options)
 	    printf("  Failed: %d repositories\n", failed_count);
 	}
 	
+	/* Repair outdated checkouts after successful sync */
+	if (synced_count > 0) {
+	    if (options->verbose) {
+	        printf("\nChecking for outdated checkouts...\n");
+	    }
+	    
+	    int repair_count = repair_all_outdated_checkouts(config, 0);
+	    if (repair_count > 0) {
+	        printf("  Repaired: %d outdated checkouts\n", repair_count);
+	    } else if (repair_count == 0) {
+	        if (options->verbose) {
+	            printf("  All checkouts are up to date\n");
+	        }
+	    } else {
+	        fprintf(stderr, "  Warning: Failed to repair checkouts (error: %d)\n", repair_count);
+	    }
+	}
+	
 	cache_config_destroy(config);
 	return (failed_count == 0) ? CACHE_SUCCESS : CACHE_ERROR_NETWORK;
 }
@@ -3088,6 +3111,54 @@ static int cache_verify(const struct cache_options *options)
 	}
 }
 
+static int cache_repair(const struct cache_options *options)
+{
+	/* Create and load configuration */
+	struct cache_config *config = cache_config_create();
+	if (!config) {
+	    return CACHE_ERROR_MEMORY;
+	}
+	
+	int ret = cache_config_load(config);
+	if (ret != CACHE_SUCCESS) {
+	    cache_config_destroy(config);
+	    return ret;
+	}
+	
+	if (options->verbose) {
+	    printf("Repairing outdated checkouts...\n");
+	    printf("Cache root: %s\n", config->cache_root ? config->cache_root : "not set");
+	    printf("Checkout root: %s\n", config->checkout_root ? config->checkout_root : "not set");
+	}
+	
+	/* Set configuration options from command line */
+	if (options->verbose) {
+	    config->verbose = 1;
+	}
+	if (options->force) {
+	    config->force = 1;
+	}
+	
+	/* Call the repair function from checkout_repair.h */
+	int repaired_count = repair_all_outdated_checkouts(config, options->force);
+	
+	if (repaired_count < 0) {
+	    fprintf(stderr, "error: failed to repair checkouts: %s\n", 
+	            checkout_repair_status_string(repaired_count));
+	    cache_config_destroy(config);
+	    return CACHE_ERROR_FILESYSTEM;
+	}
+	
+	if (repaired_count == 0) {
+	    printf("All checkouts are up to date. No repairs needed.\n");
+	} else {
+	    printf("Successfully repaired %d checkout(s).\n", repaired_count);
+	}
+	
+	cache_config_destroy(config);
+	return CACHE_SUCCESS;
+}
+
 /* Main function */
 int main(int argc, char *argv[])
 {
@@ -3139,6 +3210,9 @@ int main(int argc, char *argv[])
 	        break;
 	    case CACHE_OP_VERIFY:
 	        ret = cache_verify(&options);
+	        break;
+	    case CACHE_OP_REPAIR:
+	        ret = cache_repair(&options);
 	        break;
 	    default:
 	        fprintf(stderr, "error: unknown operation\n");

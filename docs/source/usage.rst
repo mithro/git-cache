@@ -111,6 +111,7 @@ This will:
 * Update cache repositories with new commits
 * Show progress for each repository
 * Report success/failure status
+* Automatically repair outdated checkouts after successful synchronization
 
 Cache Cleanup
 ^^^^^^^^^^^^^
