@@ -43,7 +43,8 @@ enum clone_strategy {
 	CLONE_STRATEGY_FULL,     /**< Full clone with complete history */
 	CLONE_STRATEGY_SHALLOW,  /**< Shallow clone with limited depth */
 	CLONE_STRATEGY_TREELESS, /**< Treeless clone without trees */
-	CLONE_STRATEGY_BLOBLESS  /**< Blobless clone without blobs */
+	CLONE_STRATEGY_BLOBLESS, /**< Blobless clone without blobs */
+	CLONE_STRATEGY_AUTO      /**< Auto-detect optimal strategy */
 };
 
 /**

@@ -19,6 +19,7 @@
 #include "cache_recovery.h"
 #include "cache_metadata.h"
 #include "checkout_repair.h"
+#include "strategy_detection.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -53,7 +54,7 @@ void print_usage(const char *program_name)
 	printf("    -v, --verbose      Enable verbose output\n");
 	printf("    -V, --version      Show version information\n");
 	printf("    -f, --force        Force operation\n");
-	printf("    --strategy <type>  Clone strategy (full, shallow, treeless, blobless)\n");
+	printf("    --strategy <type>  Clone strategy (full, shallow, treeless, blobless, auto)\n");
 	printf("    --depth <n>        Depth for shallow clones (default: 1)\n");
 	printf("    --org <name>       Organization for forks (default: auto-detect)\n");
 	printf("    --private          Make forked repositories private\n");
@@ -89,6 +90,8 @@ static enum clone_strategy parse_strategy(const char *strategy_str)
 	    return CLONE_STRATEGY_TREELESS;
 	} else if (strcmp(strategy_str, "blobless") == 0) {
 	    return CLONE_STRATEGY_BLOBLESS;
+	} else if (strcmp(strategy_str, "auto") == 0) {
+	    return CLONE_STRATEGY_AUTO;
 	}
 	
 	return CLONE_STRATEGY_FULL;
@@ -1435,8 +1438,27 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	}
 	
 	/* Create new bare repository in temporary location */
+	
+	/* Build strategy arguments */
+	char strategy_args[256] = "";
+	switch (repo->strategy) {
+	    case CLONE_STRATEGY_SHALLOW:
+	        snprintf(strategy_args, sizeof(strategy_args), " --depth=1");
+	        break;
+	    case CLONE_STRATEGY_TREELESS:
+	        strcpy(strategy_args, " --filter=tree:0");
+	        break;
+	    case CLONE_STRATEGY_BLOBLESS:
+	        strcpy(strategy_args, " --filter=blob:none");
+	        break;
+	    case CLONE_STRATEGY_FULL:
+	    default:
+	        /* No additional args for full clone */
+	        break;
+	}
+	
 	const char *recursive_args = (config->recursive_submodules) ? " --recurse-submodules" : "";
-	size_t cmd_len = strlen("git clone --bare") + strlen(recursive_args) + strlen(" \"") + strlen(repo->original_url) + 
+	size_t cmd_len = strlen("git clone --bare") + strlen(strategy_args) + strlen(recursive_args) + strlen(" \"") + strlen(repo->original_url) + 
 	                 strlen("\" \"") + strlen(temp_path) + strlen("\"") + 1;
 	char *clone_cmd = malloc(cmd_len);
 	if (!clone_cmd) {
@@ -1449,8 +1471,8 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	    RETURN_WITH_LOCK_CLEANUP(repo->cache_path, CACHE_ERROR_MEMORY);
 	}
 	
-	snprintf(clone_cmd, cmd_len, "git clone --bare%s \"%s\" \"%s\"", 
-	         recursive_args, repo->original_url, temp_path);
+	snprintf(clone_cmd, cmd_len, "git clone --bare%s%s \"%s\" \"%s\"", 
+	         strategy_args, recursive_args, repo->original_url, temp_path);
 	
 	if (config->verbose) {
 	    printf("Executing: %s\n", clone_cmd);
@@ -2466,6 +2488,20 @@ static int cache_clone_repository(const char *url, const struct cache_options *o
 	
 	/* Set strategy from options */
 	repo->strategy = options->strategy;
+	
+	/* Apply auto-detection if AUTO strategy was selected */
+	if (repo->strategy == CLONE_STRATEGY_AUTO) {
+		if (config->verbose) {
+			printf("Auto-detecting optimal clone strategy...\n");
+		}
+		int auto_ret = auto_detect_strategy(repo, config);
+		if (auto_ret != 0) {
+			if (config->verbose) {
+				printf("Auto-detection failed, using default strategy\n");
+			}
+			repo->strategy = config->default_strategy; /* fallback */
+		}
+	}
 	
 	/* Set fork organization */
 	if (options->organization) {
