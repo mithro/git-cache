@@ -86,8 +86,8 @@ int configure_fork_settings(struct repo_info *repo, const struct fork_config *co
  * @return 0 on success, negative error code on failure
  */
 int create_fork_with_config(struct github_client *client, const char *owner,
-                           const char *name, const struct fork_config *config,
-                           struct fork_result *result);
+	                       const char *name, const struct fork_config *config,
+	                       struct fork_result *result);
 
 /**
  * @brief Check if repository needs forking
@@ -122,7 +122,7 @@ int get_fork_sync_status(const struct repo_info *repo, struct fork_sync_status *
  * @return 0 on success, negative error code on failure
  */
 int configure_fork_remotes(const char *repo_path, const char *fork_url,
-                          const char *upstream_url);
+	                      const char *upstream_url);
 
 /**
  * @brief Set default fork organization
@@ -142,8 +142,8 @@ int set_default_fork_organization(struct fork_config *config, const char *organi
  * @return 0 on success, negative error code on failure
  */
 int apply_fork_privacy_settings(struct github_client *client, const char *fork_owner,
-                               const char *fork_name, int original_private,
-                               const struct fork_config *config);
+	                           const char *fork_name, int original_private,
+	                           const struct fork_config *config);
 
 /**
  * @brief List all forks managed by git-cache
@@ -153,8 +153,8 @@ int apply_fork_privacy_settings(struct github_client *client, const char *fork_o
  * @return Number of forks found, or negative error code
  */
 int list_managed_forks(const struct cache_config *config,
-                      int (*callback)(const struct repo_info *repo, void *user_data),
-                      void *user_data);
+	                  int (*callback)(const struct repo_info *repo, void *user_data),
+	                  void *user_data);
 
 /**
  * @brief Delete fork and clean up references
@@ -197,7 +197,7 @@ void cleanup_fork_sync_status(struct fork_sync_status *status);
  * @return 1 if can push, 0 if not, negative on error
  */
 int can_push_to_repository(struct github_client *client, const char *owner,
-                          const char *name);
+	                      const char *name);
 
 /**
  * @brief Create pull request from fork to upstream
@@ -209,6 +209,6 @@ int can_push_to_repository(struct github_client *client, const char *owner,
  * @return PR number on success, negative error code on failure
  */
 int create_pull_request_from_fork(struct github_client *client, const struct repo_info *repo,
-                                 const char *branch, const char *title, const char *body);
+	                             const char *branch, const char *title, const char *body);
 
 #endif /* FORK_CONFIG_H */

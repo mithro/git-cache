@@ -99,7 +99,7 @@ int load_strategy_config(struct strategy_config *config)
  * @brief Extract repository info from GitHub API (simplified version)
  */
 static int analyze_github_repository(const char *owner, const char *name, 
-                                    struct repo_analysis *analysis)
+	                                struct repo_analysis *analysis)
 {
 	struct github_client *client = github_client_create(NULL);
 	if (!client) {
@@ -319,8 +319,8 @@ int analyze_repository_from_path(const char *repo_path, struct repo_analysis *an
  * @brief Get optimal clone strategy based on analysis
  */
 int get_optimal_strategy(const struct repo_analysis *analysis,
-                        const struct strategy_config *config,
-                        struct strategy_recommendation *recommendation)
+	                    const struct strategy_config *config,
+	                    struct strategy_recommendation *recommendation)
 {
 	if (!analysis || !config || !recommendation) {
 		return -1;
@@ -497,8 +497,8 @@ const char* get_strategy_description(enum clone_strategy strategy)
  * @brief Estimate download time for different strategies
  */
 int estimate_download_time(const struct repo_analysis *analysis,
-                          enum clone_strategy strategy,
-                          int bandwidth_mbps)
+	                      enum clone_strategy strategy,
+	                      int bandwidth_mbps)
 {
 	if (!analysis || bandwidth_mbps <= 0) {
 		return -1;
@@ -586,8 +586,8 @@ void cleanup_strategy_recommendation(struct strategy_recommendation *recommendat
  * @brief Learn from user's strategy choices (placeholder for future ML)
  */
 int learn_from_strategy_choice(const struct repo_info *repo,
-                              const struct repo_analysis *analysis,
-                              int success)
+	                          const struct repo_analysis *analysis,
+	                          int success)
 {
 	/* For now, this is a placeholder for future machine learning integration */
 	(void)repo;

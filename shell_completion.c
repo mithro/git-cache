@@ -503,7 +503,7 @@ int show_completion_status(void)
  * @brief Handle completion command from command line
  */
 int handle_completion_command(enum completion_mode mode, enum shell_type shell_type, 
-                             const char *output_file)
+	                         const char *output_file)
 {
 	switch (mode) {
 		case COMPLETION_MODE_GENERATE:

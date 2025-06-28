@@ -64,7 +64,7 @@ int load_sync_config(struct sync_config *config)
  * @brief Add remote mirror to repository
  */
 int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
-                     const char *mirror_url, const char *mirror_type, int priority)
+	                 const char *mirror_url, const char *mirror_type, int priority)
 {
 	if (!repo || !mirror_name || !mirror_url || !repo->cache_path) {
 		return SYNC_ERROR_INVALID;
@@ -150,7 +150,7 @@ int sync_with_mirror(struct repo_info *repo, const char *mirror_name, int force)
  * @brief Synchronize repository with all configured mirrors
  */
 int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
-                     struct sync_result *result)
+	                 struct sync_result *result)
 {
 	if (!repo || !repo->cache_path || !result) {
 		return SYNC_ERROR_INVALID;
@@ -252,8 +252,8 @@ int push_to_mirrors(struct repo_info *repo, const char *branch, int force)
  * @brief Clone from best available mirror with fallback
  */
 int clone_from_best_mirror(const char *url, const char *target_path,
-                          enum clone_strategy strategy, const char **fallback_mirrors,
-                          int fallback_count)
+	                      enum clone_strategy strategy, const char **fallback_mirrors,
+	                      int fallback_count)
 {
 	if (!url || !target_path) {
 		return SYNC_ERROR_INVALID;

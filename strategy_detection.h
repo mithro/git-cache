@@ -79,8 +79,8 @@ int analyze_repository_from_path(const char *repo_path, struct repo_analysis *an
  * @return 0 on success, negative error code on failure
  */
 int get_optimal_strategy(const struct repo_analysis *analysis,
-                        const struct strategy_config *config,
-                        struct strategy_recommendation *recommendation);
+	                    const struct strategy_config *config,
+	                    struct strategy_recommendation *recommendation);
 
 /**
  * @brief Auto-detect and set optimal strategy for repository
@@ -98,8 +98,8 @@ int auto_detect_strategy(struct repo_info *repo, struct cache_config *config);
  * @return 0 on success, negative error code on failure
  */
 int learn_from_strategy_choice(const struct repo_info *repo,
-                              const struct repo_analysis *analysis,
-                              int success);
+	                          const struct repo_analysis *analysis,
+	                          int success);
 
 /**
  * @brief Get default strategy configuration
@@ -141,8 +141,8 @@ const char* get_strategy_description(enum clone_strategy strategy);
  * @return Estimated download time in seconds
  */
 int estimate_download_time(const struct repo_analysis *analysis,
-                          enum clone_strategy strategy,
-                          int bandwidth_mbps);
+	                      enum clone_strategy strategy,
+	                      int bandwidth_mbps);
 
 /**
  * @brief Check if repository supports partial clone

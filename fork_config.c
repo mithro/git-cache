@@ -167,8 +167,8 @@ int needs_fork(const struct repo_info *repo, const struct fork_config *config)
  * @brief Create fork with specified settings
  */
 int create_fork_with_config(struct github_client *client, const char *owner,
-                           const char *name, const struct fork_config *config,
-                           struct fork_result *result)
+	                       const char *name, const struct fork_config *config,
+	                       struct fork_result *result)
 {
 	if (!client || !owner || !name || !config || !result) {
 		return -1;
@@ -210,7 +210,7 @@ int create_fork_with_config(struct github_client *client, const char *owner,
  * @brief Configure fork remote in local repository
  */
 int configure_fork_remotes(const char *repo_path, const char *fork_url,
-                          const char *upstream_url)
+	                      const char *upstream_url)
 {
 	if (!repo_path || !fork_url || !upstream_url) {
 		return -1;
@@ -335,7 +335,7 @@ int get_fork_sync_status(const struct repo_info *repo, struct fork_sync_status *
  * @brief Check if user has permission to push to repository
  */
 int can_push_to_repository(struct github_client *client, const char *owner,
-                          const char *name)
+	                      const char *name)
 {
 	if (!client || !owner || !name) {
 		return -1;

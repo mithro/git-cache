@@ -69,7 +69,7 @@ int repair_cache_repository(const char *cache_path, const char *original_url, in
  * @return CACHE_RECOVERY_OK if repaired, error code otherwise
  */
 int repair_checkout_repository(const char *checkout_path, const char *cache_path, 
-                              enum clone_strategy strategy, int verbose);
+	                          enum clone_strategy strategy, int verbose);
 
 /**
  * @brief Comprehensive verification and repair of repository and checkouts

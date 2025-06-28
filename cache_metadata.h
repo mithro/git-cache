@@ -117,7 +117,7 @@ int cache_metadata_decrement_ref(const char *cache_path);
  * @return METADATA_SUCCESS on success, error code on failure
  */
 int cache_metadata_get_by_url(const struct cache_config *config, const char *url, 
-                             struct cache_metadata *metadata);
+	                         struct cache_metadata *metadata);
 
 /**
  * @brief List all cached repositories with metadata
@@ -127,8 +127,8 @@ int cache_metadata_get_by_url(const struct cache_config *config, const char *url
  * @return Number of repositories found, or negative error code
  */
 int cache_metadata_list_all(const struct cache_config *config,
-                           int (*callback)(const struct cache_metadata *metadata, void *user_data),
-                           void *user_data);
+	                       int (*callback)(const struct cache_metadata *metadata, void *user_data),
+	                       void *user_data);
 
 /**
  * @brief Calculate cache directory size

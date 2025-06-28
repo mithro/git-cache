@@ -106,6 +106,6 @@ enum shell_type parse_shell_type(const char *shell_name);
  * @return 0 on success, negative error code on failure
  */
 int handle_completion_command(enum completion_mode mode, enum shell_type shell_type, 
-                             const char *output_file);
+	                         const char *output_file);
 
 #endif /* SHELL_COMPLETION_H */

@@ -222,7 +222,7 @@ static int parse_key_value(const char *line, char **key, char **value)
  * @brief Add configuration entry to list
  */
 static int add_config_entry(struct config_entry **entries, const char *section,
-                           const char *key, const char *value)
+	                       const char *key, const char *value)
 {
 	if (!entries || !key || !value) {
 		return CONFIG_ERROR_INVALID;

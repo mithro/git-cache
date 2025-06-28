@@ -45,7 +45,7 @@ int checkout_needs_repair(const char *checkout_path, const char *cache_path, tim
  * @return CHECKOUT_REPAIR_SUCCESS on success, error code on failure
  */
 int repair_outdated_checkout(const char *checkout_path, const char *cache_path, 
-                            enum clone_strategy strategy, int verbose);
+	                        enum clone_strategy strategy, int verbose);
 
 /**
  * @brief Check and repair all checkouts for a repository
@@ -88,8 +88,8 @@ int update_checkout_from_cache(const char *checkout_path, const char *cache_path
  * @return Number of orphaned checkouts found, or negative error code
  */
 int detect_orphaned_checkouts(struct cache_config *config,
-                             int (*callback)(const char *checkout_path, void *user_data),
-                             void *user_data);
+	                         int (*callback)(const char *checkout_path, void *user_data),
+	                         void *user_data);
 
 /**
  * @brief Check if cache has been updated since checkout was created
@@ -100,7 +100,7 @@ int detect_orphaned_checkouts(struct cache_config *config,
  * @return 1 if cache is newer, 0 if not, negative on error
  */
 int cache_newer_than_checkout(const char *checkout_path, const char *cache_path,
-                             time_t *checkout_mtime, time_t *cache_mtime);
+	                         time_t *checkout_mtime, time_t *cache_mtime);
 
 /**
  * @brief Get checkout repair status message

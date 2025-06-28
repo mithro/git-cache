@@ -44,7 +44,7 @@ static int get_directory_mtime(const char *path, time_t *mtime)
  * @brief Check if cache has been updated since checkout was created
  */
 int cache_newer_than_checkout(const char *checkout_path, const char *cache_path,
-                             time_t *checkout_mtime, time_t *cache_mtime)
+	                         time_t *checkout_mtime, time_t *cache_mtime)
 {
 	if (!checkout_path || !cache_path) {
 		return CHECKOUT_REPAIR_INVALID_ARGS;
@@ -199,7 +199,7 @@ int update_checkout_from_cache(const char *checkout_path, const char *cache_path
  * @brief Repair a checkout that has become outdated
  */
 int repair_outdated_checkout(const char *checkout_path, const char *cache_path, 
-                            enum clone_strategy strategy, int verbose)
+	                        enum clone_strategy strategy, int verbose)
 {
 	if (!checkout_path || !cache_path) {
 		return CHECKOUT_REPAIR_INVALID_ARGS;
@@ -425,8 +425,8 @@ int repair_all_outdated_checkouts(struct cache_config *config, int force_repair)
  * @brief Detect orphaned checkouts (cache no longer exists)
  */
 int detect_orphaned_checkouts(struct cache_config *config,
-                             int (*callback)(const char *checkout_path, void *user_data),
-                             void *user_data)
+	                         int (*callback)(const char *checkout_path, void *user_data),
+	                         void *user_data)
 {
 	if (!config || !callback) {
 		return CHECKOUT_REPAIR_INVALID_ARGS;

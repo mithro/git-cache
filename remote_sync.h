@@ -79,7 +79,7 @@ struct sync_result {
  * @return SYNC_SUCCESS on success, error code on failure
  */
 int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
-                     const char *mirror_url, const char *mirror_type, int priority);
+	                 const char *mirror_url, const char *mirror_type, int priority);
 
 /**
  * @brief Remove remote mirror from repository
@@ -105,7 +105,7 @@ int list_remote_mirrors(const struct repo_info *repo, struct remote_mirror **mir
  * @return SYNC_SUCCESS on success, error code on failure
  */
 int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
-                     struct sync_result *result);
+	                 struct sync_result *result);
 
 /**
  * @brief Synchronize repository with specific mirror
@@ -190,8 +190,8 @@ int save_sync_config(const struct sync_config *config);
  * @return SYNC_SUCCESS on success, error code on failure
  */
 int clone_from_best_mirror(const char *url, const char *target_path,
-                          enum clone_strategy strategy, const char **fallback_mirrors,
-                          int fallback_count);
+	                      enum clone_strategy strategy, const char **fallback_mirrors,
+	                      int fallback_count);
 
 /**
  * @brief Monitor sync operations and report status
@@ -200,7 +200,7 @@ int clone_from_best_mirror(const char *url, const char *target_path,
  * @return SYNC_SUCCESS on success, error code on failure
  */
 int monitor_sync_operations(void (*callback)(const char *status, void *user_data),
-                           void *user_data);
+	                       void *user_data);
 
 /**
  * @brief Clean up remote mirror list
@@ -244,6 +244,6 @@ int needs_synchronization(const struct repo_info *repo, const char *mirror_name)
  * @return SYNC_SUCCESS on success, error code on failure
  */
 int update_mirror_sync_status(struct repo_info *repo, const char *mirror_name,
-                             int status, const char *error_message);
+	                         int status, const char *error_message);
 
 #endif /* REMOTE_SYNC_H */

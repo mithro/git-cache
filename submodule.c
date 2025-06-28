@@ -215,7 +215,7 @@ int process_submodules(struct repo_info *repo, struct cache_config *config, int 
 }
 
 int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub, 
-                    struct cache_config *config)
+	                struct cache_config *config)
 {
 	/* Create a repo_info for the submodule */
 	struct repo_info *sub_repo = malloc(sizeof(struct repo_info));
@@ -292,7 +292,7 @@ int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub,
 }
 
 int init_submodule_checkout(struct repo_info *parent_repo, struct submodule_info *sub,
-                           struct cache_config *config)
+	                       struct cache_config *config)
 {
 	char submodule_path[4096];
 	char submodule_cache[4096];
