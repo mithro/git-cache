@@ -539,7 +539,7 @@ int cache_metadata_decrement_ref(const char *cache_path)
  * @brief Get repository metadata by URL
  */
 int cache_metadata_get_by_url(const struct cache_config *config, const char *url, 
-                             struct cache_metadata *metadata)
+	                         struct cache_metadata *metadata)
 {
 	if (!config || !url || !metadata) {
 		return METADATA_ERROR_INVALID;
@@ -564,8 +564,8 @@ int cache_metadata_get_by_url(const struct cache_config *config, const char *url
  * @brief List all cached repositories with metadata
  */
 int cache_metadata_list_all(const struct cache_config *config,
-                           int (*callback)(const struct cache_metadata *metadata, void *user_data),
-                           void *user_data)
+	                       int (*callback)(const struct cache_metadata *metadata, void *user_data),
+	                       void *user_data)
 {
 	if (!config || !callback) {
 		return METADATA_ERROR_INVALID;
