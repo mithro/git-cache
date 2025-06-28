@@ -21,6 +21,7 @@
 #include "checkout_repair.h"
 #include "strategy_detection.h"
 #include "config_file.h"
+#include "remote_sync.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -50,6 +51,7 @@ void print_usage(const char *program_name)
 	printf("    verify [url]       Verify cache integrity and repair if needed\n");
 	printf("    repair             Repair outdated checkouts\n");
 	printf("    config             Show or modify configuration\n");
+	printf("    mirror             Manage remote mirrors\n");
 	printf("\n");
 	printf("Options:\n");
 	printf("    -h, --help         Show this help message\n");
