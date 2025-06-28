@@ -53,15 +53,16 @@ enum clone_strategy {
  * Defines the available operations for git-cache
  */
 enum cache_operation {
-	CACHE_OP_CLONE,  /**< Clone repository with caching */
-	CACHE_OP_STATUS, /**< Show cache status */
-	CACHE_OP_CLEAN,  /**< Clean cache */
-	CACHE_OP_SYNC,   /**< Synchronize cache with remotes */
-	CACHE_OP_LIST,   /**< List cached repositories */
-	CACHE_OP_VERIFY, /**< Verify cache integrity */
-	CACHE_OP_REPAIR, /**< Repair outdated checkouts */
-	CACHE_OP_CONFIG, /**< Show or modify configuration */
-	CACHE_OP_MIRROR  /**< Manage remote mirrors */
+	CACHE_OP_CLONE,      /**< Clone repository with caching */
+	CACHE_OP_STATUS,     /**< Show cache status */
+	CACHE_OP_CLEAN,      /**< Clean cache */
+	CACHE_OP_SYNC,       /**< Synchronize cache with remotes */
+	CACHE_OP_LIST,       /**< List cached repositories */
+	CACHE_OP_VERIFY,     /**< Verify cache integrity */
+	CACHE_OP_REPAIR,     /**< Repair outdated checkouts */
+	CACHE_OP_CONFIG,     /**< Show or modify configuration */
+	CACHE_OP_MIRROR,     /**< Manage remote mirrors */
+	CACHE_OP_COMPLETION  /**< Manage shell completion */
 };
 
 /**
@@ -97,6 +98,7 @@ struct cache_config {
 	int verbose;           /**< Enable verbose output */
 	int force;             /**< Force operations */
 	int recursive_submodules; /**< Handle submodules recursively */
+	void *fork_config;     /**< Fork configuration settings (opaque pointer) */
 };
 
 /**

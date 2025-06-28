@@ -22,6 +22,8 @@
 #include "strategy_detection.h"
 #include "config_file.h"
 #include "remote_sync.h"
+#include "fork_config.h"
+#include "shell_completion.h"
 
 /* Lock file settings */
 #define LOCK_SUFFIX ".lock"
@@ -52,6 +54,7 @@ void print_usage(const char *program_name)
 	printf("    repair             Repair outdated checkouts\n");
 	printf("    config             Show or modify configuration\n");
 	printf("    mirror             Manage remote mirrors\n");
+	printf("    completion         Manage shell completion\n");
 	printf("\n");
 	printf("Options:\n");
 	printf("    -h, --help         Show this help message\n");
@@ -151,6 +154,12 @@ static int parse_arguments(int argc, char *argv[], struct cache_options *options
 	    i++;
 	} else if (strcmp(argv[i], "config") == 0) {
 	    options->operation = CACHE_OP_CONFIG;
+	    i++;
+	} else if (strcmp(argv[i], "mirror") == 0) {
+	    options->operation = CACHE_OP_MIRROR;
+	    i++;
+	} else if (strcmp(argv[i], "completion") == 0) {
+	    options->operation = CACHE_OP_COMPLETION;
 	    i++;
 	} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 	    options->help = 1;
@@ -424,6 +433,12 @@ static struct cache_config* cache_config_create(void)
 	config->force = 0;
 	config->recursive_submodules = 1;
 	
+	/* Allocate and initialize fork configuration */
+	config->fork_config = malloc(sizeof(struct fork_config));
+	if (config->fork_config) {
+		get_default_fork_config((struct fork_config *)config->fork_config);
+	}
+	
 	/* Get GitHub token from environment */
 	const char *token = getenv("GITHUB_TOKEN");
 	if (token) {
@@ -446,6 +461,13 @@ static void cache_config_destroy(struct cache_config *config)
 	free(config->cache_root);
 	free(config->checkout_root);
 	free(config->github_token);
+	
+	/* Clean up fork configuration */
+	if (config->fork_config) {
+		cleanup_fork_config((struct fork_config *)config->fork_config);
+		free(config->fork_config);
+	}
+	
 	free(config);
 }
 
@@ -464,6 +486,11 @@ static int cache_config_load(struct cache_config *config)
 	    fprintf(stderr, "warning: failed to load configuration files: %s\n", 
 	            config_get_error_string(ret));
 	    /* Continue anyway - we'll use defaults and environment variables */
+	}
+	
+	/* Load fork configuration */
+	if (config->fork_config) {
+		load_fork_config((struct fork_config *)config->fork_config);
 	}
 	
 	/* Override with environment variables if set */
@@ -602,7 +629,7 @@ int repo_info_parse_url(const char *url, struct repo_info *repo)
 	    repo->type = REPO_TYPE_GITHUB;
 	    repo->owner = owner;
 	    repo->name = name;
-	    repo->is_fork_needed = 1; /* Default to forking for GitHub repos */
+	    repo->is_fork_needed = 0; /* Will be determined by fork configuration */
 	    return CACHE_SUCCESS;
 	}
 	
@@ -1699,40 +1726,25 @@ static int handle_github_fork(struct repo_info *repo, const struct cache_config 
 	    return CACHE_ERROR_GITHUB;
 	}
 	
-	/* Fork the repository */
-	struct github_repo *forked_repo;
-	int ret = github_fork_repo(client, repo->owner, repo->name, repo->fork_organization, &forked_repo);
+	/* Use fork configuration to create fork */
+	struct fork_result result;
+	int ret = create_fork_with_config(client, repo->owner, repo->name, 
+	                                  (struct fork_config *)config->fork_config, &result);
 	
-	if (ret == GITHUB_SUCCESS) {
+	if (ret == 0 && result.success) {
 	    if (config->verbose) {
-	        printf("Fork created: %s\n", forked_repo->full_name);
+	        printf("Fork created successfully\n");
 	    }
 	    
 	    /* Store the fork URL for use in modifiable checkout */
-	    if (forked_repo->ssh_url) {
-	        repo->fork_url = strdup(forked_repo->ssh_url);
-	    } else if (forked_repo->clone_url) {
-	        repo->fork_url = strdup(forked_repo->clone_url);
+	    if (result.fork_url) {
+	        repo->fork_url = strdup(result.fork_url);
 	    }
 	    
-	    /* Set fork to private if requested */
-	    if (options->make_private) {
-	        ret = github_set_repo_private(client, forked_repo->owner, forked_repo->name, 1);
-	        if (ret == GITHUB_SUCCESS) {
-	            if (config->verbose) {
-	                printf("Fork set to private\n");
-	            }
-	        } else {
-	            if (config->verbose) {
-	                printf("Warning: failed to set fork to private: %s\n", github_get_error_string(ret));
-	            }
-	        }
-	    }
-	    
-	    github_repo_destroy(forked_repo);
-	} else if (ret == GITHUB_ERROR_INVALID) {
+	    ret = CACHE_SUCCESS;
+	} else if (result.already_exists) {
 	    if (config->verbose) {
-	        printf("Fork already exists or validation error\n");
+	        printf("Fork already exists\n");
 	    }
 	    /* Try to construct the fork URL even if fork already exists */
 	    char constructed_url[1024];
@@ -1743,10 +1755,13 @@ static int handle_github_fork(struct repo_info *repo, const struct cache_config 
 	    ret = CACHE_SUCCESS; /* Not a fatal error */
 	} else {
 	    if (config->verbose) {
-	        printf("Fork creation failed: %s\n", github_get_error_string(ret));
+	        printf("Fork creation failed: %s\n", 
+	               result.error_message ? result.error_message : "Unknown error");
 	    }
+	    ret = CACHE_ERROR_GITHUB;
 	}
 	
+	cleanup_fork_result(&result);
 	github_client_destroy(client);
 	return ret;
 }
@@ -2621,11 +2636,14 @@ static int cache_clone_repository(const char *url, const struct cache_options *o
 	}
 	
 	/* Step 2: Handle GitHub forking if needed */
-	if (repo->type == REPO_TYPE_GITHUB && repo->is_fork_needed && config->github_token) {
-	    ret = handle_github_fork(repo, config, options);
-	    if (ret != CACHE_SUCCESS && options->verbose) {
-	        printf("Warning: GitHub fork operation failed: %s\n", cache_get_error_string(ret));
-	        printf("Continuing with original repository...\n");
+	if (repo->type == REPO_TYPE_GITHUB && config->github_token && config->fork_config) {
+	    int fork_needed = needs_fork(repo, (struct fork_config *)config->fork_config);
+	    if (fork_needed > 0) {
+	        ret = handle_github_fork(repo, config, options);
+	        if (ret != CACHE_SUCCESS && options->verbose) {
+	            printf("Warning: GitHub fork operation failed: %s\n", cache_get_error_string(ret));
+	            printf("Continuing with original repository...\n");
+	        }
 	    }
 	}
 	
@@ -3359,6 +3377,76 @@ static int cache_config_command(const struct cache_options *options)
 	return CACHE_SUCCESS;
 }
 
+/* Handle completion command */
+static int cache_completion_command(const struct cache_options *options)
+{
+	if (!options) {
+		return CACHE_ERROR_ARGS;
+	}
+	
+	/* Parse completion subcommand from URL field */
+	const char *subcommand = options->url;
+	
+	if (!subcommand) {
+		/* Show completion status by default */
+		return show_completion_status();
+	}
+	
+	if (strcmp(subcommand, "status") == 0) {
+		return show_completion_status();
+	} else if (strcmp(subcommand, "install") == 0) {
+		return install_shell_completion(SHELL_TYPE_UNKNOWN);
+	} else if (strcmp(subcommand, "uninstall") == 0) {
+		return uninstall_shell_completion(SHELL_TYPE_UNKNOWN);
+	} else if (strcmp(subcommand, "generate") == 0) {
+		enum shell_type shell = detect_shell_type();
+		if (shell == SHELL_TYPE_UNKNOWN) {
+			fprintf(stderr, "error: could not detect shell type\n");
+			return CACHE_ERROR_ARGS;
+		}
+		return generate_completion_script(shell, NULL);
+	} else {
+		fprintf(stderr, "error: unknown completion command: %s\n", subcommand);
+		fprintf(stderr, "Available commands: status, install, uninstall, generate\n");
+		return CACHE_ERROR_ARGS;
+	}
+}
+
+/* Handle mirror command */
+static int cache_mirror_command(const struct cache_options *options)
+{
+	if (!options) {
+		return CACHE_ERROR_ARGS;
+	}
+	
+	/* Parse mirror subcommand from URL field */
+	const char *subcommand = options->url;
+	
+	if (!subcommand) {
+		fprintf(stderr, "error: mirror command requires a subcommand\n");
+		fprintf(stderr, "Available commands: add, remove, list, sync\n");
+		return CACHE_ERROR_ARGS;
+	}
+	
+	if (strcmp(subcommand, "list") == 0) {
+		printf("Mirror management not yet implemented\n");
+		return CACHE_SUCCESS;
+	} else if (strcmp(subcommand, "add") == 0) {
+		printf("Mirror add not yet implemented\n");
+		return CACHE_SUCCESS;
+	} else if (strcmp(subcommand, "remove") == 0) {
+		printf("Mirror remove not yet implemented\n");
+		return CACHE_SUCCESS;
+	} else if (strcmp(subcommand, "sync") == 0) {
+		printf("Mirror sync not yet implemented\n");
+		return CACHE_SUCCESS;
+	} else {
+		fprintf(stderr, "error: unknown mirror command: %s\n", subcommand);
+		fprintf(stderr, "Available commands: add, remove, list, sync\n");
+		return CACHE_ERROR_ARGS;
+	}
+}
+
 /* Main function */
 int main(int argc, char *argv[])
 {
@@ -3416,6 +3504,12 @@ int main(int argc, char *argv[])
 	        break;
 	    case CACHE_OP_CONFIG:
 	        ret = cache_config_command(&options);
+	        break;
+	    case CACHE_OP_MIRROR:
+	        ret = cache_mirror_command(&options);
+	        break;
+	    case CACHE_OP_COMPLETION:
+	        ret = cache_completion_command(&options);
 	        break;
 	    default:
 	        fprintf(stderr, "error: unknown operation\n");

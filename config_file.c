@@ -706,3 +706,96 @@ const char* config_get_error_string(int error_code)
 			return "Unknown error";
 	}
 }
+
+/**
+ * @brief Find configuration entry by section and key
+ */
+static struct config_entry* find_config_entry(const char *section, const char *key)
+{
+	struct config_entry *entry = global_config.entries;
+	while (entry) {
+		if ((!section && !entry->section) || 
+		    (section && entry->section && strcmp(section, entry->section) == 0)) {
+			if (strcmp(key, entry->key) == 0) {
+				return entry;
+			}
+		}
+		entry = entry->next;
+	}
+	return NULL;
+}
+
+/**
+ * @brief Get configuration value as string
+ */
+const char* get_config_string(const char *section, const char *key, const char *default_value)
+{
+	struct config_entry *entry = find_config_entry(section, key);
+	return entry ? entry->value : default_value;
+}
+
+/**
+ * @brief Get configuration value as integer
+ */
+int get_config_int(const char *section, const char *key, int default_value)
+{
+	struct config_entry *entry = find_config_entry(section, key);
+	if (!entry) {
+		return default_value;
+	}
+	
+	char *endptr;
+	long value = strtol(entry->value, &endptr, 10);
+	if (endptr == entry->value || *endptr != '\0') {
+		return default_value;
+	}
+	
+	return (int)value;
+}
+
+/**
+ * @brief Get configuration value as boolean
+ */
+int get_config_bool(const char *section, const char *key, int default_value)
+{
+	struct config_entry *entry = find_config_entry(section, key);
+	if (!entry) {
+		return default_value;
+	}
+	
+	if (strcmp(entry->value, "true") == 0 || strcmp(entry->value, "1") == 0 ||
+	    strcmp(entry->value, "yes") == 0 || strcmp(entry->value, "on") == 0) {
+		return 1;
+	} else if (strcmp(entry->value, "false") == 0 || strcmp(entry->value, "0") == 0 ||
+	           strcmp(entry->value, "no") == 0 || strcmp(entry->value, "off") == 0) {
+		return 0;
+	}
+	
+	return default_value;
+}
+
+/**
+ * @brief Set configuration value
+ */
+int set_config_value(const char *section, const char *key, const char *value)
+{
+	if (!key || !value) {
+		return CONFIG_ERROR_INVALID;
+	}
+	
+	/* Find existing entry */
+	struct config_entry *entry = find_config_entry(section, key);
+	if (entry) {
+		/* Update existing entry */
+		char *new_value = strdup(value);
+		if (!new_value) {
+			return CONFIG_ERROR_MEMORY;
+		}
+		free(entry->value);
+		entry->value = new_value;
+		return CONFIG_SUCCESS;
+	}
+	
+	/* Add new entry */
+	return add_config_entry(&global_config.entries, section, key, value);
+}

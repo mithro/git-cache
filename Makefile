@@ -7,11 +7,11 @@ URL_TEST_TARGET = test_url_parsing
 FORK_TEST_TARGET = test_fork_integration
 SUBMODULE_TEST_TARGET = test_submodule
 METADATA_TEST_TARGET = test_cache_metadata
-CACHE_SOURCES = git-cache.c github_api.c submodule.c cache_recovery.c cache_metadata.c checkout_repair.c strategy_detection.c config_file.c remote_sync.c
+CACHE_SOURCES = git-cache.c github_api.c submodule.c cache_recovery.c cache_metadata.c checkout_repair.c strategy_detection.c config_file.c remote_sync.c fork_config.c shell_completion.c
 GITHUB_SOURCES = github_api.c
 CACHE_OBJECTS = $(CACHE_SOURCES:.c=.o)
 GITHUB_OBJECTS = $(GITHUB_SOURCES:.c=.o)
-HEADERS = git-cache.h github_api.h submodule.h cache_recovery.h cache_metadata.h checkout_repair.h strategy_detection.h config_file.h remote_sync.h
+HEADERS = git-cache.h github_api.h submodule.h cache_recovery.h cache_metadata.h checkout_repair.h strategy_detection.h config_file.h remote_sync.h fork_config.h shell_completion.h
 
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
