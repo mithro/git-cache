@@ -164,7 +164,7 @@ int analyze_repository_from_url(const char *url, struct repo_analysis *analysis)
 		char *github_part = strstr(url_copy, "github.com/");
 		if (github_part) {
 			github_part += strlen("github.com/");
-			char *owner = github_part;
+			const char *owner = github_part;
 			char *slash = strchr(owner, '/');
 			if (slash) {
 				*slash = '\0';

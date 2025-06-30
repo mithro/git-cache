@@ -36,7 +36,7 @@ int repo_info_parse_url(const char *url, struct repo_info *repo)
 		char *path_start = strstr(url_copy, "github.com/");
 		if (path_start) {
 			path_start += strlen("github.com/");
-			char *owner_start = path_start;
+			const char *owner_start = path_start;
 			char *slash = strchr(owner_start, '/');
 			if (slash) {
 				*slash = '\0';
