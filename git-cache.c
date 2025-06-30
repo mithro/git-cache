@@ -3233,9 +3233,7 @@ static int cache_repair(const struct cache_options *options)
 	}
 	
 	/* Set configuration options from command line */
-	if (options->verbose) {
-	    config->verbose = 1;
-	}
+	config->verbose = options->verbose;
 	if (options->force) {
 	    config->force = 1;
 	}

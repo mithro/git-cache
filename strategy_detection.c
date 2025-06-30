@@ -328,9 +328,7 @@ int get_optimal_strategy(const struct repo_analysis *analysis,
 	
 	/* Initialize recommendation */
 	memset(recommendation, 0, sizeof(*recommendation));
-	recommendation->strategy = CLONE_STRATEGY_FULL;
 	recommendation->fallback = CLONE_STRATEGY_FULL;
-	recommendation->confidence = 50;
 	
 	uint64_t size_mb = analysis->estimated_size / (1024 * 1024);
 	
@@ -406,12 +404,13 @@ int get_optimal_strategy(const struct repo_analysis *analysis,
 		recommendation->strategy = CLONE_STRATEGY_TREELESS;
 		recommendation->confidence = 60;
 		recommendation->reasoning = strdup("Medium-sized repository - treeless clone balances speed and functionality");
+		recommendation->fallback = CLONE_STRATEGY_SHALLOW;
 	} else {
 		recommendation->strategy = CLONE_STRATEGY_FULL;
 		recommendation->confidence = 65;
 		recommendation->reasoning = strdup("Standard repository - full clone recommended");
+		recommendation->fallback = CLONE_STRATEGY_SHALLOW;
 	}
-	recommendation->fallback = CLONE_STRATEGY_SHALLOW;
 	
 	return 0;
 }
