@@ -1493,18 +1493,20 @@ static int create_cache_repository(const struct repo_info *repo, const struct ca
 	
 	/* Create new bare repository in temporary location */
 	
-	/* Build strategy arguments */
+	/* Build strategy arguments - cache repository should always be full clone */
+	/* IMPORTANT: Shallow repositories cannot be used as reference repositories */
+	/* Even if user requests shallow clone, the cache must be full to support --reference */
 	char strategy_args[256] = "";
 	switch (repo->strategy) {
-	    case CLONE_STRATEGY_SHALLOW:
-	        snprintf(strategy_args, sizeof(strategy_args), " --depth=1");
-	        break;
 	    case CLONE_STRATEGY_TREELESS:
 	        strcpy(strategy_args, " --filter=tree:0");
 	        break;
 	    case CLONE_STRATEGY_BLOBLESS:
 	        strcpy(strategy_args, " --filter=blob:none");
 	        break;
+	    case CLONE_STRATEGY_SHALLOW:
+	        /* Shallow strategy only applies to checkouts, not cache */
+	        /* Fall through to full clone */
 	    case CLONE_STRATEGY_FULL:
 	    default:
 	        /* No additional args for full clone */
