@@ -168,9 +168,9 @@ void free_submodule_list(struct submodule_list *list)
 
 /* Forward declarations for static functions */
 static int cache_submodule(const struct repo_info *parent_repo, const struct submodule_info *sub, 
-                          struct cache_config *config);
+			  struct cache_config *config);
 static int init_submodule_checkout(const struct repo_info *parent_repo, const struct submodule_info *sub,
-                                  struct cache_config *config);
+				  struct cache_config *config);
 
 int process_submodules(const struct repo_info *repo, struct cache_config *config, int recursive)
 {
