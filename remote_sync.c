@@ -300,7 +300,8 @@ int clone_from_best_mirror(const char *url, const char *target_path,
 		/* Remove failed attempt */
 		char rm_cmd[4096];
 		snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf \"%s\"", target_path);
-		(void)system(rm_cmd); /* Ignore return value - cleanup is best effort */
+		int cleanup_result = system(rm_cmd);
+		(void)cleanup_result; /* Cleanup is best effort */
 		
 		/* Try fallback mirror */
 		snprintf(clone_cmd, sizeof(clone_cmd),
