@@ -149,7 +149,7 @@ static char* parse_section_name(const char *line)
 	strncpy(section, start, len);
 	section[len] = '\0';
 	
-	char *trimmed = trim_whitespace(section);
+	const char *trimmed = trim_whitespace(section);
 	if (trimmed != section) {
 		/* trim_whitespace returned a different pointer, need to copy */
 		char *result = strdup(trimmed);
@@ -186,7 +186,7 @@ static int parse_key_value(const char *line, char **key, char **value)
 	
 	strncpy(key_buf, line, key_len);
 	key_buf[key_len] = '\0';
-	char *trimmed_key = trim_whitespace(key_buf);
+	const char *trimmed_key = trim_whitespace(key_buf);
 	
 	/* Copy the trimmed key to a new buffer */
 	*key = strdup(trimmed_key);
@@ -204,7 +204,7 @@ static int parse_key_value(const char *line, char **key, char **value)
 		return CONFIG_ERROR_MEMORY;
 	}
 	
-	char *trimmed_value = trim_whitespace(value_buf);
+	const char *trimmed_value = trim_whitespace(value_buf);
 	
 	/* Copy the trimmed value to a new buffer */
 	*value = strdup(trimmed_value);
@@ -739,7 +739,7 @@ const char* get_config_string(const char *section, const char *key, const char *
  */
 int get_config_int(const char *section, const char *key, int default_value)
 {
-	struct config_entry *entry = find_config_entry(section, key);
+	const struct config_entry *entry = find_config_entry(section, key);
 	if (!entry) {
 		return default_value;
 	}
@@ -758,7 +758,7 @@ int get_config_int(const char *section, const char *key, int default_value)
  */
 int get_config_bool(const char *section, const char *key, int default_value)
 {
-	struct config_entry *entry = find_config_entry(section, key);
+	const struct config_entry *entry = find_config_entry(section, key);
 	if (!entry) {
 		return default_value;
 	}

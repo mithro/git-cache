@@ -158,6 +158,9 @@ int analyze_repository_from_url(const char *url, struct repo_analysis *analysis)
 	if (strstr(url, "github.com")) {
 		/* Parse GitHub URL to get owner/repo */
 		char *url_copy = strdup(url);
+		if (!url_copy) {
+			return -1;
+		}
 		char *github_part = strstr(url_copy, "github.com/");
 		if (github_part) {
 			github_part += strlen("github.com/");
@@ -418,7 +421,7 @@ int get_optimal_strategy(const struct repo_analysis *analysis,
 /**
  * @brief Auto-detect and set optimal strategy for repository
  */
-int auto_detect_strategy(struct repo_info *repo, struct cache_config *config)
+int auto_detect_strategy(struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
 		return -1;

@@ -244,7 +244,7 @@ int configure_fork_remotes(const char *repo_path, const char *fork_url,
 /**
  * @brief Synchronize fork with upstream
  */
-int sync_fork_with_upstream(struct repo_info *repo, const char *branch, int force)
+int sync_fork_with_upstream(const struct repo_info *repo, const char *branch, int force)
 {
 	if (!repo || !repo->modifiable_path) {
 		return -1;

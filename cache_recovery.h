@@ -77,7 +77,7 @@ int repair_checkout_repository(const char *checkout_path, const char *cache_path
  * @param config Cache configuration
  * @return CACHE_RECOVERY_OK if all valid/repaired, error code otherwise
  */
-int verify_and_repair_repository(struct repo_info *repo, struct cache_config *config);
+int verify_and_repair_repository(struct repo_info *repo, const struct cache_config *config);
 
 /**
  * @brief Get human-readable error message for recovery status

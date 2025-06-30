@@ -276,7 +276,7 @@ int validate_checkout_references(const char *checkout_path, const char *expected
 /**
  * @brief Check and repair all checkouts for a repository
  */
-int repair_all_checkouts_for_repo(struct repo_info *repo, struct cache_config *config)
+int repair_all_checkouts_for_repo(struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
 		return CHECKOUT_REPAIR_INVALID_ARGS;

@@ -25,6 +25,10 @@ int repo_info_parse_url(const char *url, struct repo_info *repo)
 	if (last_slash) {
 		const char *name_start = last_slash + 1;
 		char *name = strdup(name_start);
+		if (!name) {
+			repo_info_destroy(repo);
+			return CACHE_ERROR_MEMORY;
+		}
 		
 		/* Remove .git suffix if present */
 		char *git_suffix = strstr(name, ".git");

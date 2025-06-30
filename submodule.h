@@ -55,26 +55,7 @@ void free_submodule_list(struct submodule_list *list);
  * @param recursive Whether to process submodules recursively
  * @return 0 on success, -1 on error
  */
-int process_submodules(struct repo_info *repo, struct cache_config *config, int recursive);
+int process_submodules(const struct repo_info *repo, struct cache_config *config, int recursive);
 
-/**
- * @brief Create cache entry for a single submodule
- * @param parent_repo Parent repository information
- * @param sub Submodule information
- * @param config Cache configuration
- * @return 0 on success, -1 on error
- */
-int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub, 
-	                struct cache_config *config);
-
-/**
- * @brief Initialize submodule in checkout with reference to cache
- * @param parent_repo Parent repository information
- * @param sub Submodule information
- * @param config Cache configuration
- * @return 0 on success, -1 on error
- */
-int init_submodule_checkout(struct repo_info *parent_repo, struct submodule_info *sub,
-	                       struct cache_config *config);
 
 #endif /* SUBMODULE_H */

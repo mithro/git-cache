@@ -63,7 +63,7 @@ int load_sync_config(struct sync_config *config)
 /**
  * @brief Add remote mirror to repository
  */
-int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
+int add_remote_mirror(const struct repo_info *repo, const char *mirror_name,
 	                 const char *mirror_url, const char *mirror_type, int priority)
 {
 	if (!repo || !mirror_name || !mirror_url || !repo->cache_path) {
@@ -100,7 +100,7 @@ int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
 /**
  * @brief Remove remote mirror from repository
  */
-int remove_remote_mirror(struct repo_info *repo, const char *mirror_name)
+int remove_remote_mirror(const struct repo_info *repo, const char *mirror_name)
 {
 	if (!repo || !mirror_name || !repo->cache_path) {
 		return SYNC_ERROR_INVALID;
@@ -123,7 +123,7 @@ int remove_remote_mirror(struct repo_info *repo, const char *mirror_name)
 /**
  * @brief Synchronize repository with specific mirror
  */
-int sync_with_mirror(struct repo_info *repo, const char *mirror_name, int force)
+int sync_with_mirror(const struct repo_info *repo, const char *mirror_name, int force)
 {
 	if (!repo || !mirror_name || !repo->cache_path) {
 		return SYNC_ERROR_INVALID;
@@ -149,7 +149,7 @@ int sync_with_mirror(struct repo_info *repo, const char *mirror_name, int force)
 /**
  * @brief Synchronize repository with all configured mirrors
  */
-int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
+int sync_with_mirrors(const struct repo_info *repo, const struct sync_config *config,
 	                 struct sync_result *result)
 {
 	(void)config; /* Unused for now */
@@ -203,7 +203,7 @@ int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
 /**
  * @brief Push repository changes to all mirrors
  */
-int push_to_mirrors(struct repo_info *repo, const char *branch, int force)
+int push_to_mirrors(const struct repo_info *repo, const char *branch, int force)
 {
 	if (!repo || !repo->cache_path) {
 		return SYNC_ERROR_INVALID;

@@ -29,6 +29,10 @@ int repo_info_parse_url(const char *url, struct repo_info *repo)
 		
 		/* Extract owner and name from URL like github.com/owner/name.git */
 		char *url_copy = strdup(url);
+		if (!url_copy) {
+			free(repo);
+			return CACHE_ERROR_MEMORY;
+		}
 		char *path_start = strstr(url_copy, "github.com/");
 		if (path_start) {
 			path_start += strlen("github.com/");

@@ -53,7 +53,7 @@ int repair_outdated_checkout(const char *checkout_path, const char *cache_path,
  * @param config Cache configuration
  * @return Number of checkouts repaired, or negative error code
  */
-int repair_all_checkouts_for_repo(struct repo_info *repo, struct cache_config *config);
+int repair_all_checkouts_for_repo(struct repo_info *repo, const struct cache_config *config);
 
 /**
  * @brief Find and repair all outdated checkouts in the system

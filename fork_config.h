@@ -104,7 +104,7 @@ int needs_fork(const struct repo_info *repo, const struct fork_config *config);
  * @param force Force sync even with local changes
  * @return 0 on success, negative error code on failure
  */
-int sync_fork_with_upstream(struct repo_info *repo, const char *branch, int force);
+int sync_fork_with_upstream(const struct repo_info *repo, const char *branch, int force);
 
 /**
  * @brief Get fork synchronization status

@@ -88,7 +88,7 @@ int get_optimal_strategy(const struct repo_analysis *analysis,
  * @param config Cache configuration
  * @return 0 on success, negative error code on failure
  */
-int auto_detect_strategy(struct repo_info *repo, struct cache_config *config);
+int auto_detect_strategy(struct repo_info *repo, const struct cache_config *config);
 
 /**
  * @brief Learn from user's strategy choices to improve recommendations

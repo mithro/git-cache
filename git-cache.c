@@ -3115,7 +3115,7 @@ static int cache_verify(const struct cache_options *options)
 	    printf("Verifying all cached repositories...\n");
 	    
 	    char cache_base[4096];
-	    char *home = getenv("HOME");
+	    const char *home = getenv("HOME");
 	    if (!home) {
 	        cache_config_destroy(config);
 	        return CACHE_ERROR_CONFIG;

@@ -80,7 +80,7 @@ int verify_cache_repository(const char *cache_path)
 		return CACHE_RECOVERY_MISSING_REFS;
 	}
 	
-	struct dirent *entry;
+	const struct dirent *entry;
 	int has_branches = 0;
 	while ((entry = readdir(refs)) != NULL) {
 		if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
@@ -283,7 +283,7 @@ int repair_checkout_repository(const char *checkout_path, const char *cache_path
 /**
  * @brief Comprehensive verification and repair of repository and checkouts
  */
-int verify_and_repair_repository(struct repo_info *repo, struct cache_config *config)
+int verify_and_repair_repository(struct repo_info *repo, const struct cache_config *config)
 {
 	if (!repo || !config) {
 		return CACHE_RECOVERY_INVALID_PATH;

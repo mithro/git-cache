@@ -19,6 +19,7 @@ static void test_fork_url_storage(void)
 	
 	/* Test 1: Verify fork_url field exists and is properly initialized */
 	struct repo_info *repo = malloc(sizeof(struct repo_info));
+	assert(repo != NULL);
 	memset(repo, 0, sizeof(struct repo_info));
 	
 	assert(repo->fork_url == NULL);
@@ -86,6 +87,7 @@ static void test_fork_detection_logic(void)
 	printf("\n=== Testing Fork Detection Logic ===\n");
 	
 	struct repo_info *repo = malloc(sizeof(struct repo_info));
+	assert(repo != NULL);
 	memset(repo, 0, sizeof(struct repo_info));
 	
 	/* Test 1: GitHub repository detection */
@@ -118,6 +120,7 @@ static void test_modifiable_checkout_scenarios(void)
 	printf("\n=== Testing Modifiable Checkout Scenarios ===\n");
 	
 	struct repo_info *repo = malloc(sizeof(struct repo_info));
+	assert(repo != NULL);
 	memset(repo, 0, sizeof(struct repo_info));
 	
 	const char *original_url = "https://github.com/user/repo.git";
@@ -153,6 +156,7 @@ static void test_memory_management(void)
 	printf("\n=== Testing Memory Management ===\n");
 	
 	struct repo_info *repo = malloc(sizeof(struct repo_info));
+	assert(repo != NULL);
 	memset(repo, 0, sizeof(struct repo_info));
 	
 	/* Test proper cleanup of fork URL */
@@ -168,6 +172,7 @@ static void test_memory_management(void)
 	
 	/* Test NULL pointer safety */
 	repo = malloc(sizeof(struct repo_info));
+	assert(repo != NULL);
 	memset(repo, 0, sizeof(struct repo_info));
 	
 	/* Should handle NULL fork_url gracefully */

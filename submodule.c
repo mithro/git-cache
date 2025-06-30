@@ -69,7 +69,7 @@ static int parse_gitmodules_internal(FILE *f, struct submodule_list *list)
 			
 			/* Parse [submodule "name"] */
 			if (strncmp(line, "[submodule \"", 12) == 0) {
-				char *end = strrchr(line, '"');
+				const char *end = strrchr(line, '"');
 				if (end && end > line + 12) {
 					size_t name_len = end - (line + 12);
 					if (name_len >= sizeof(current_info.name)) {
@@ -82,7 +82,7 @@ static int parse_gitmodules_internal(FILE *f, struct submodule_list *list)
 			}
 		} else if (in_submodule) {
 			/* Parse submodule properties */
-			char *trimmed = line;
+			const char *trimmed = line;
 			while (*trimmed == ' ' || *trimmed == '\t') {
 				trimmed++;
 			}
@@ -166,7 +166,13 @@ void free_submodule_list(struct submodule_list *list)
 	list->capacity = 0;
 }
 
-int process_submodules(struct repo_info *repo, struct cache_config *config, int recursive)
+/* Forward declarations for static functions */
+static int cache_submodule(const struct repo_info *parent_repo, const struct submodule_info *sub, 
+                          struct cache_config *config);
+static int init_submodule_checkout(const struct repo_info *parent_repo, const struct submodule_info *sub,
+                                  struct cache_config *config);
+
+int process_submodules(const struct repo_info *repo, struct cache_config *config, int recursive)
 {
 	char gitmodules_path[4096];
 	struct submodule_list submodules;
@@ -189,7 +195,7 @@ int process_submodules(struct repo_info *repo, struct cache_config *config, int 
 	
 	/* Process each submodule */
 	for (size_t i = 0; i < submodules.count; i++) {
-		struct submodule_info *sub = &submodules.submodules[i];
+		const struct submodule_info *sub = &submodules.submodules[i];
 		
 		if (config->verbose) {
 			printf("  Submodule '%s' at path '%s' from %s\n", 
@@ -214,7 +220,7 @@ int process_submodules(struct repo_info *repo, struct cache_config *config, int 
 	return ret;
 }
 
-int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub, 
+static int cache_submodule(const struct repo_info *parent_repo, const struct submodule_info *sub, 
 	                struct cache_config *config)
 {
 	/* Create a repo_info for the submodule */
@@ -294,7 +300,7 @@ int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub,
 	return 0;
 }
 
-int init_submodule_checkout(struct repo_info *parent_repo, struct submodule_info *sub,
+static int init_submodule_checkout(const struct repo_info *parent_repo, const struct submodule_info *sub,
 	                       struct cache_config *config)
 {
 	char submodule_path[4096];

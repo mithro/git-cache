@@ -78,7 +78,7 @@ struct sync_result {
  * @param priority Mirror priority (0=highest)
  * @return SYNC_SUCCESS on success, error code on failure
  */
-int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
+int add_remote_mirror(const struct repo_info *repo, const char *mirror_name,
 	                 const char *mirror_url, const char *mirror_type, int priority);
 
 /**
@@ -87,7 +87,7 @@ int add_remote_mirror(struct repo_info *repo, const char *mirror_name,
  * @param mirror_name Name of mirror to remove
  * @return SYNC_SUCCESS on success, error code on failure
  */
-int remove_remote_mirror(struct repo_info *repo, const char *mirror_name);
+int remove_remote_mirror(const struct repo_info *repo, const char *mirror_name);
 
 /**
  * @brief List all remote mirrors for repository
@@ -104,7 +104,7 @@ int list_remote_mirrors(const struct repo_info *repo, struct remote_mirror **mir
  * @param result Output structure for sync results
  * @return SYNC_SUCCESS on success, error code on failure
  */
-int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
+int sync_with_mirrors(const struct repo_info *repo, const struct sync_config *config,
 	                 struct sync_result *result);
 
 /**
@@ -114,7 +114,7 @@ int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
  * @param force Force sync even if up to date
  * @return SYNC_SUCCESS on success, error code on failure
  */
-int sync_with_mirror(struct repo_info *repo, const char *mirror_name, int force);
+int sync_with_mirror(const struct repo_info *repo, const char *mirror_name, int force);
 
 /**
  * @brief Auto-discover available mirrors for repository
@@ -147,7 +147,7 @@ const char* get_optimal_mirror(const struct repo_info *repo, const char *operati
  * @param force Force push
  * @return SYNC_SUCCESS on success, error code on failure
  */
-int push_to_mirrors(struct repo_info *repo, const char *branch, int force);
+int push_to_mirrors(const struct repo_info *repo, const char *branch, int force);
 
 /**
  * @brief Fetch latest changes from all mirrors
