@@ -152,6 +152,8 @@ int sync_with_mirror(struct repo_info *repo, const char *mirror_name, int force)
 int sync_with_mirrors(struct repo_info *repo, const struct sync_config *config,
 	                 struct sync_result *result)
 {
+	(void)config; /* Unused for now */
+	
 	if (!repo || !repo->cache_path || !result) {
 		return SYNC_ERROR_INVALID;
 	}
@@ -317,6 +319,7 @@ int clone_from_best_mirror(const char *url, const char *target_path,
 /**
  * @brief Test connectivity to mirror
  */
+__attribute__((unused))
 static int test_mirror_connection(const char *mirror_url)
 {
 	if (!mirror_url) {
@@ -337,6 +340,8 @@ static int test_mirror_connection(const char *mirror_url)
  */
 const char* get_optimal_mirror(const struct repo_info *repo, const char *operation_type)
 {
+	(void)operation_type; /* Unused for now */
+	
 	if (!repo || !repo->cache_path) {
 		return NULL;
 	}
@@ -381,6 +386,8 @@ const char* get_optimal_mirror(const struct repo_info *repo, const char *operati
  */
 int needs_synchronization(const struct repo_info *repo, const char *mirror_name)
 {
+	(void)mirror_name; /* Unused for now */
+	
 	if (!repo || !repo->cache_path) {
 		return SYNC_ERROR_INVALID;
 	}

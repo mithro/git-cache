@@ -588,7 +588,10 @@ int cache_metadata_list_all(const struct cache_config *config,
 		}
 		
 		char owner_path[4096];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 		snprintf(owner_path, sizeof(owner_path), "%s/%s", github_path, owner_entry->d_name);
+#pragma GCC diagnostic pop
 		
 		DIR *owner_dir = opendir(owner_path);
 		if (!owner_dir) {
@@ -602,7 +605,10 @@ int cache_metadata_list_all(const struct cache_config *config,
 			}
 			
 			char repo_path[4096];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 			snprintf(repo_path, sizeof(repo_path), "%s/%s", owner_path, repo_entry->d_name);
+#pragma GCC diagnostic pop
 			
 			/* Check if metadata exists */
 			if (cache_metadata_exists(repo_path)) {

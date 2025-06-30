@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <signal.h>
+#include <limits.h>
 
 #include "git-cache.h"
 #include "github_api.h"
@@ -3130,8 +3131,11 @@ static int cache_verify(const struct cache_options *options)
 	    }
 	    
 	    /* Walk through cache directory and verify each repository */
-	    char github_path[8192];
+	    char github_path[PATH_MAX];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 	    snprintf(github_path, sizeof(github_path), "%s/github.com", cache_base);
+#pragma GCC diagnostic pop
 	    
 	    DIR *github_dir = opendir(github_path);
 	    if (!github_dir) {
@@ -3149,8 +3153,15 @@ static int cache_verify(const struct cache_options *options)
 	            continue;
 	        }
 	        
-	        char owner_path[8192];
+	        char owner_path[PATH_MAX];
+	        if (strlen(github_path) + strlen(owner_entry->d_name) + 2 >= PATH_MAX) {
+	            fprintf(stderr, "warning: path too long, skipping %s\n", owner_entry->d_name);
+	            continue;
+	        }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 	        snprintf(owner_path, sizeof(owner_path), "%s/%s", github_path, owner_entry->d_name);
+#pragma GCC diagnostic pop
 	        
 	        DIR *owner_dir = opendir(owner_path);
 	        if (!owner_dir) {
@@ -3163,8 +3174,15 @@ static int cache_verify(const struct cache_options *options)
 	                continue;
 	            }
 	            
-	            char repo_path[8192];
+	            char repo_path[PATH_MAX];
+	            if (strlen(owner_path) + strlen(repo_entry->d_name) + 2 >= PATH_MAX) {
+	                fprintf(stderr, "warning: path too long, skipping %s\n", repo_entry->d_name);
+	                continue;
+	            }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 	            snprintf(repo_path, sizeof(repo_path), "%s/%s", owner_path, repo_entry->d_name);
+#pragma GCC diagnostic pop
 	            
 	            total_repos++;
 	            printf("Checking: %s/%s... ", owner_entry->d_name, repo_entry->d_name);

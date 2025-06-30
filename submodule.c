@@ -239,8 +239,11 @@ int cache_submodule(struct repo_info *parent_repo, struct submodule_info *sub,
 		"%s/submodules/%s", parent_repo->cache_path, sub->path);
 	
 	/* Create submodule cache directory if needed */
-	char mkdir_cmd[4096];
+	char mkdir_cmd[8192];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 	snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p $(dirname %s)", submodule_cache_base);
+#pragma GCC diagnostic pop
 	if (system(mkdir_cmd) != 0) {
 		repo_info_destroy(sub_repo);
 		return -1;
@@ -321,7 +324,10 @@ int init_submodule_checkout(struct repo_info *parent_repo, struct submodule_info
 	}
 	
 	/* Use git submodule update with reference */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 	snprintf(reference_flag, sizeof(reference_flag), "--reference=%s", submodule_cache);
+#pragma GCC diagnostic pop
 	
 	char init_cmd[8192];
 	snprintf(init_cmd, sizeof(init_cmd),

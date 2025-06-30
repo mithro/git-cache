@@ -464,12 +464,18 @@ int detect_orphaned_checkouts(struct cache_config *config,
 			}
 			
 			char checkout_path[4096];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 			snprintf(checkout_path, sizeof(checkout_path), "%s/%s", 
 			         owner_path, repo_entry->d_name);
+#pragma GCC diagnostic pop
 			
 			/* Check if this is a git repository */
 			char git_dir[4096];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
 			snprintf(git_dir, sizeof(git_dir), "%s/.git", checkout_path);
+#pragma GCC diagnostic pop
 			if (access(git_dir, F_OK) != 0) {
 				continue;
 			}
