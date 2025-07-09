@@ -3,6 +3,10 @@
 [![CI](https://github.com/mithro/git-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/ci.yml)
 [![Test Suite](https://github.com/mithro/git-cache/actions/workflows/test.yml/badge.svg)](https://github.com/mithro/git-cache/actions/workflows/test.yml)
 
+## ⚠️ WARNING: Experimental Project
+
+**This project is an experiment in vibe coding a new greenfield project using Claude Code. Despite the impression that this code might work, expect it to be horribly broken in strange and unusual ways. Don't trust it with your code repositories!**
+
 A high-performance Git repository caching tool that speeds up clone operations and manages shared repository storage.
 
 ## Description
